@@ -1016,9 +1016,39 @@ function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// ── PWA: Manifest (data URI) ──────────────────────────────────────
-(function() {
-  const icon = "data:image/svg+xml," + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="100" fill="#4a90d9"/><text x="256" y="360" font-size="280" text-anchor="middle">🛍️</text></svg>`);
+// ── PWA: Manifest + Icon (SVG→PNG変換) ───────────────────────────
+(async function() {
+  const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+    <defs>
+      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#fba8d4"/>
+        <stop offset="100%" stop-color="#be1a8c"/>
+      </linearGradient>
+    </defs>
+    <rect width="512" height="512" rx="108" fill="url(#g)"/>
+    <rect x="108" y="218" width="296" height="224" rx="22" fill="white"/>
+    <path d="M 178 218 L 178 160 Q 178 104 256 104 Q 334 104 334 160 L 334 218"
+          fill="none" stroke="white" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="210" cy="218" r="14" fill="#fba8d4"/>
+    <circle cx="302" cy="218" r="14" fill="#fba8d4"/>
+  </svg>`;
+
+  function svgToPng(svg, size) {
+    return new Promise(resolve => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      const img = new Image();
+      img.onload = () => { ctx.drawImage(img, 0, 0, size, size); resolve(canvas.toDataURL('image/png')); };
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    });
+  }
+
+  const [icon192, icon512] = await Promise.all([svgToPng(svgIcon, 192), svgToPng(svgIcon, 512)]);
+
+  const touchIcon = document.querySelector('link[rel="apple-touch-icon"]');
+  if (touchIcon) touchIcon.href = icon192;
+
   const manifest = {
     name: "購入記録",
     short_name: "購入記録",
@@ -1026,17 +1056,16 @@ function esc(s) {
     start_url: "./",
     display: "standalone",
     orientation: "portrait",
-    background_color: "#f5f7fa",
-    theme_color: "#4a90d9",
+    background_color: "#fba8d4",
+    theme_color: "#be1a8c",
     lang: "ja",
     icons: [
-      { src: icon, sizes: "192x192", type: "image/svg+xml" },
-      { src: icon, sizes: "512x512", type: "image/svg+xml" }
+      { src: icon192, sizes: "192x192", type: "image/png", purpose: "any maskable" },
+      { src: icon512, sizes: "512x512", type: "image/png", purpose: "any maskable" }
     ]
   };
   const blob = new Blob([JSON.stringify(manifest)], {type: 'application/manifest+json'});
-  const url = URL.createObjectURL(blob);
-  document.getElementById('manifest-link').href = url;
+  document.getElementById('manifest-link').href = URL.createObjectURL(blob);
 })();
 
 // ── PWA: Service Worker (HTTPSまたはlocalhostで有効) ──────────────
