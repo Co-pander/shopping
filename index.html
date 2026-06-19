@@ -339,8 +339,7 @@ window.onload = function() {
   document.getElementById('f-date').value = todayStr();
   refreshChannelSelect();
   refreshPaymentSelect();
-  // Default 5 product rows
-  for (let i = 0; i < 5; i++) addProductRow();
+  addProductRow();
   document.addEventListener('click', e => {
     if (!e.target.closest('[id^="wrap-"]') && !e.target.closest('.ac-wrap')) {
       document.querySelectorAll('.autocomplete-list').forEach(l => l.style.display = 'none');
@@ -534,7 +533,7 @@ function resetForm() {
   document.getElementById('f-payment').value = '';
   document.getElementById('product-rows').innerHTML = '';
   rowCounter = 0;
-  for (let i = 0; i < 5; i++) addProductRow();
+  addProductRow();
   document.getElementById('disp-first').textContent = '—';
   document.getElementById('disp-last').textContent = '—';
   document.getElementById('disp-count').textContent = '—';
