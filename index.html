@@ -11,8 +11,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="購入記録">
-<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='40' fill='%234a90d9'/%3E%3Ctext x='96' y='130' font-size='100' text-anchor='middle'%3E%F0%9F%9B%8D%EF%B8%8F%3C/text%3E%3C/svg%3E">
-<link rel="manifest" id="manifest-link">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="manifest" href="manifest.json">
 <style>
   :root {
     --primary: #4a90d9;
@@ -110,8 +111,8 @@
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
   /* Import result modal */
-  #import-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 1000; align-items: center; justify-content: center; padding: 20px; }
-  #import-modal.open { display: flex; }
+  #import-modal, .mode-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 1000; align-items: center; justify-content: center; padding: 20px; }
+  #import-modal.open, .mode-modal.open { display: flex; }
   .modal-box { background: #fff; border-radius: 16px; padding: 24px; width: 100%; max-width: 380px; }
   .modal-box h3 { font-size: 17px; margin-bottom: 12px; }
   .modal-box p { font-size: 14px; color: var(--text); margin-bottom: 8px; line-height: 1.6; }
@@ -339,6 +340,17 @@
   </div>
 </div>
 
+<!-- Import Mode Modal -->
+<div id="import-mode-modal" class="mode-modal">
+  <div class="modal-box">
+    <h3>📥 CSV取込方法の選択</h3>
+    <p>取り込み方法を選んでください。</p>
+    <button class="btn btn-primary" onclick="runImport('merge')">重複は読み込まない（差分のみ）</button>
+    <button class="btn" style="background:#fff4e5;color:#b07400;border:1.5px solid #f0d090;margin-top:10px;" onclick="runImport('replace')">すべて上書き（既存データを置換）</button>
+    <button class="btn btn-outline" style="margin-top:10px;" onclick="cancelImport()">キャンセル</button>
+  </div>
+</div>
+
 <!-- Import Result Modal -->
 <div id="import-modal">
   <div class="modal-box">
@@ -383,7 +395,12 @@ window.onload = function() {
 };
 
 function todayStr() { return new Date().toISOString().split('T')[0]; }
-function fmtDate(d) { if (!d) return '—'; const [y,m,day] = d.split('-'); return `${y}/${m}/${day}`; }
+function fmtDate(d) {
+  if (!d) return '—';
+  const parts = String(d).split(/[\/\-]/);
+  if (parts.length !== 3) return String(d);
+  return `${parts[0]}/${parts[1]}/${parts[2]}`;
+}
 
 // ── Product rows ─────────────────────────────────────────────────
 function addProductRow(product, unitPrice, quantity) {
@@ -821,16 +838,42 @@ function downloadText(content, filename, type) {
 // ── CSV Import ────────────────────────────────────────────────────
 function triggerImport() { document.getElementById('csv-file-input').click(); }
 
+let pendingCSVText = null;
+
 function handleCSVImport(event) {
   const file = event.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = e => processCSV(e.target.result);
+  reader.onload = e => {
+    pendingCSVText = e.target.result;
+    document.getElementById('import-mode-modal').classList.add('open');
+  };
   reader.readAsText(file, 'UTF-8');
   event.target.value = '';
 }
 
-function processCSV(text) {
+function runImport(mode) {
+  document.getElementById('import-mode-modal').classList.remove('open');
+  if (!pendingCSVText) return;
+  processCSV(pendingCSVText, mode);
+  pendingCSVText = null;
+}
+
+function cancelImport() {
+  document.getElementById('import-mode-modal').classList.remove('open');
+  pendingCSVText = null;
+}
+
+// 日付を YYYY-MM-DD に正規化（Excel保存で 2026/7/1 形式になるのを補正）
+function normalizeDate(s) {
+  if (!s) return '';
+  s = s.trim();
+  const m = s.match(/^(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})日?$/);
+  if (!m) return s;
+  return m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0');
+}
+
+function processCSV(text, mode) {
   // Remove BOM
   text = text.replace(/^﻿/, '');
   const lines = text.split(/\r?\n/).filter(l => l.trim());
@@ -860,7 +903,8 @@ function processCSV(text) {
     return;
   }
 
-  const existing = getRecords();
+  // mode: 'merge' = 重複は読み込まない（差分のみ） / 'replace' = すべて上書き
+  const existing = mode === 'replace' ? [] : getRecords();
   // Duplicate key: date + product + price
   const existingKeys = new Set(existing.map(r => dupKey(r)));
 
@@ -872,7 +916,7 @@ function processCSV(text) {
     const row = parseCSVRow(lines[i]);
     if (row.length < 2) { invalid++; continue; }
     const get = idx => (idx >= 0 && idx < row.length) ? row[idx].trim() : '';
-    const date    = get(iDate);
+    const date    = normalizeDate(get(iDate));
     const product = get(iProduct);
     if (!product) { invalid++; continue; }
     const unitPriceStr = get(iUnitPrice);
@@ -900,15 +944,16 @@ function processCSV(text) {
     newRecords.push(rec);
   }
 
-  if (newRecords.length) {
+  if (newRecords.length || mode === 'replace') {
     const merged = [...existing, ...newRecords];
     recalcAutoFields(merged);
     saveRecords(merged);
   }
 
   showImportResult(
-    `<p>取込完了：<strong>${newRecords.length} 件</strong>を追加しました。</p>
-     <p>重複スキップ：${skipped} 件</p>
+    `<p>取込モード：${mode === 'replace' ? 'すべて上書き' : '差分のみ取込'}</p>
+     <p>取込完了：<strong>${newRecords.length} 件</strong>${mode === 'replace' ? 'に置き換えました' : 'を追加しました'}。</p>
+     ${mode === 'merge' ? '<p>重複スキップ：' + skipped + ' 件</p>' : ''}
      ${invalid ? '<p>無効な行：' + invalid + ' 件</p>' : ''}`,
     newRecords.length, skipped, invalid
   );
@@ -1128,80 +1173,9 @@ function clearAllData() {
   toast('全データを削除しました');
 }
 
-// ── PWA: Manifest + Icon (SVG→PNG変換) ───────────────────────────
-(async function() {
-  const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-    <defs>
-      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="#fba8d4"/>
-        <stop offset="100%" stop-color="#be1a8c"/>
-      </linearGradient>
-    </defs>
-    <rect width="512" height="512" rx="108" fill="url(#g)"/>
-    <rect x="136" y="224" width="240" height="192" rx="20" fill="white"/>
-    <path d="M 176 224 L 176 164 Q 176 102 256 102 Q 336 102 336 164 L 336 224"
-          fill="none" stroke="white" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="176" cy="224" r="12" fill="#fba8d4"/>
-    <circle cx="336" cy="224" r="12" fill="#fba8d4"/>
-  </svg>`;
-
-  function svgToPng(svg, size) {
-    return new Promise(resolve => {
-      const canvas = document.createElement('canvas');
-      canvas.width = canvas.height = size;
-      const ctx = canvas.getContext('2d');
-      const img = new Image();
-      img.onload = () => { ctx.drawImage(img, 0, 0, size, size); resolve(canvas.toDataURL('image/png')); };
-      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-    });
-  }
-
-  const [icon192, icon512] = await Promise.all([svgToPng(svgIcon, 192), svgToPng(svgIcon, 512)]);
-
-  const touchIcon = document.querySelector('link[rel="apple-touch-icon"]');
-  if (touchIcon) touchIcon.href = icon192;
-
-  const manifest = {
-    name: "購入記録",
-    short_name: "購入記録",
-    description: "日々の購入品を記録・管理するアプリ",
-    start_url: "./",
-    display: "standalone",
-    orientation: "portrait",
-    background_color: "#fba8d4",
-    theme_color: "#be1a8c",
-    lang: "ja",
-    icons: [
-      { src: icon192, sizes: "192x192", type: "image/png", purpose: "any maskable" },
-      { src: icon512, sizes: "512x512", type: "image/png", purpose: "any maskable" }
-    ]
-  };
-  const blob = new Blob([JSON.stringify(manifest)], {type: 'application/manifest+json'});
-  document.getElementById('manifest-link').href = URL.createObjectURL(blob);
-})();
-
 // ── PWA: Service Worker (HTTPSまたはlocalhostで有効) ──────────────
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  const swCode = `
-const CACHE = 'shopping-v1';
-const ASSETS = ['/'];
-self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
-  self.skipWaiting();
-});
-self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys =>
-    Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-  ));
-  self.clients.claim();
-});
-self.addEventListener('fetch', e => {
-  e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
-});
-  `;
-  const swBlob = new Blob([swCode], {type: 'application/javascript'});
-  const swUrl  = URL.createObjectURL(swBlob);
-  navigator.serviceWorker.register(swUrl).catch(() => {});
+  navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 </script>
 </body>
