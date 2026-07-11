@@ -122,6 +122,21 @@
   .divider { height: 1px; background: var(--border); margin: 14px 0; }
   .mt8 { margin-top: 8px; }
 
+  /* Shipping */
+  .shipping-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+  .shipping-check-label { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--text); cursor: pointer; white-space: nowrap; }
+  .shipping-check-label input[type=checkbox] { width: 18px; height: 18px; cursor: pointer; accent-color: var(--primary); }
+  .shipping-input { flex: 1; }
+  .total-display { background: #eef4fb; border-radius: 8px; padding: 10px 14px; margin-top: 10px; font-size: 13px; color: var(--text); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
+  .total-display .total-item { color: var(--muted); }
+  .total-display .total-sum { font-size: 15px; font-weight: 700; color: var(--primary); }
+
+  /* Cash options */
+  .cash-options { background: #f8f9fa; border-radius: 8px; padding: 10px 12px; margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .cash-option-label { display: flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 600; cursor: pointer; padding: 5px 10px; border: 1.5px solid var(--border); border-radius: 20px; background: #fff; transition: all .2s; }
+  .cash-option-label input[type=radio] { accent-color: var(--primary); }
+  .cash-option-label:has(input:checked) { border-color: var(--primary); background: #eef4fb; color: var(--primary); }
+
   /* Search */
   .period-btns { display: flex; flex-wrap: wrap; gap: 6px; }
   .period-btn { padding: 7px 12px; border: 1.5px solid var(--border); border-radius: 20px; background: #fff; color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; transition: all .2s; }
@@ -163,6 +178,15 @@
     <div id="product-rows"></div>
     <button class="add-row-btn" onclick="addProductRow()">＋ 商品を追加</button>
 
+    <div class="shipping-row">
+      <label class="shipping-check-label">
+        <input type="checkbox" id="f-shipping-check" onchange="toggleShipping()">
+        送料あり
+      </label>
+      <input type="number" id="f-shipping" class="shipping-input" placeholder="送料（円）" min="0" style="display:none;" oninput="updateTotal()">
+    </div>
+    <div id="total-display" style="display:none;" class="total-display"></div>
+
     <div class="divider"></div>
 
     <div class="row2">
@@ -203,10 +227,15 @@
       <label>支払方法</label>
       <div class="channel-row">
         <div style="flex:1;position:relative;">
-          <select id="f-payment"></select>
+          <select id="f-payment" onchange="onPaymentChange()"></select>
           <div class="autocomplete-list" id="ac-payment" style="display:none"></div>
         </div>
         <button class="btn btn-outline btn-sm" onclick="addPayment()">＋追加</button>
+      </div>
+      <div id="cash-options" class="cash-options" style="display:none;">
+        <label class="cash-option-label"><input type="radio" name="cash-type" value="代引き"> 代引き</label>
+        <label class="cash-option-label"><input type="radio" name="cash-type" value="コンビニ支払い"> コンビニ支払い</label>
+        <label class="cash-option-label"><input type="radio" name="cash-type" value="現地払い"> 現地払い</label>
       </div>
     </div>
 
@@ -387,6 +416,48 @@ function calcRowPrice(input) {
   const qty = parseFloat(nums[1].value) || 0;
   const disp = calcLine.querySelector('.price-display');
   disp.textContent = (unitPrice > 0 && qty > 0) ? '¥' + (unitPrice * qty).toLocaleString() : '—';
+  updateTotal();
+}
+
+// ── 送料・合計 ────────────────────────────────────────────────────
+function toggleShipping() {
+  const checked = document.getElementById('f-shipping-check').checked;
+  const input = document.getElementById('f-shipping');
+  input.style.display = checked ? 'block' : 'none';
+  if (!checked) input.value = '';
+  updateTotal();
+}
+
+function updateTotal() {
+  const rows = getProductRows();
+  const subtotal = rows.reduce((s, r) => s + (r.price || 0), 0);
+  const shippingChecked = document.getElementById('f-shipping-check').checked;
+  const shipping = shippingChecked ? (parseFloat(document.getElementById('f-shipping').value) || 0) : 0;
+  const total = subtotal + shipping;
+  const disp = document.getElementById('total-display');
+  const show = rows.length > 1 || (shippingChecked && shipping > 0) || (rows.length === 1 && shipping > 0);
+  if (!show) { disp.style.display = 'none'; return; }
+  disp.style.display = 'flex';
+  let html = '';
+  if (rows.length > 0) html += `<span class="total-item">小計 ¥${subtotal.toLocaleString()}</span>`;
+  if (shippingChecked && shipping > 0) html += `<span class="total-item">＋ 送料 ¥${shipping.toLocaleString()}</span>`;
+  html += `<span class="total-sum">合計 ¥${total.toLocaleString()}</span>`;
+  disp.innerHTML = html;
+}
+
+// ── 現金オプション ─────────────────────────────────────────────────
+function onPaymentChange() {
+  const val = document.getElementById('f-payment').value;
+  const opts = document.getElementById('cash-options');
+  opts.style.display = val === '現金' ? 'flex' : 'none';
+  if (val !== '現金') {
+    document.querySelectorAll('input[name="cash-type"]').forEach(r => r.checked = false);
+  }
+}
+
+function getCashDetail() {
+  const checked = document.querySelector('input[name="cash-type"]:checked');
+  return checked ? checked.value : '';
 }
 
 function removeProductRow(btn) {
@@ -485,6 +556,9 @@ function saveRecord() {
   const store = document.getElementById('f-store').value.trim();
   const channel = document.getElementById('f-channel').value;
   const payment = document.getElementById('f-payment').value;
+  const paymentDetail = getCashDetail();
+  const shipping = document.getElementById('f-shipping-check').checked
+    ? (parseFloat(document.getElementById('f-shipping').value) || 0) : 0;
 
   if (!date) { toast('購入日を入力してください'); return; }
 
@@ -497,12 +571,12 @@ function saveRecord() {
     // Edit mode: single product
     const pRow = productRows[0];
     const idx = records.findIndex(r => r.id === editId);
-    if (idx !== -1) records[idx] = { ...records[idx], date, product: pRow.product, unitPrice: pRow.unitPrice, quantity: pRow.quantity, price: pRow.price, brand, category, subcategory, store, channel, payment };
+    if (idx !== -1) records[idx] = { ...records[idx], date, product: pRow.product, unitPrice: pRow.unitPrice, quantity: pRow.quantity, price: pRow.price, brand, category, subcategory, store, channel, payment, paymentDetail, shipping };
     editId = null;
     document.getElementById('save-btn').textContent = '記録を保存する';
   } else {
     productRows.forEach(pRow => {
-      records.push({ id: Date.now().toString() + Math.random().toString(36).slice(2,6), date, product: pRow.product, unitPrice: pRow.unitPrice, quantity: pRow.quantity, price: pRow.price, brand, category, subcategory, store, channel, payment });
+      records.push({ id: Date.now().toString() + Math.random().toString(36).slice(2,6), date, product: pRow.product, unitPrice: pRow.unitPrice, quantity: pRow.quantity, price: pRow.price, brand, category, subcategory, store, channel, payment, paymentDetail, shipping });
     });
   }
 
@@ -531,6 +605,12 @@ function resetForm() {
   ['f-brand','f-category','f-subcategory','f-store'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('f-channel').value = '';
   document.getElementById('f-payment').value = '';
+  document.getElementById('cash-options').style.display = 'none';
+  document.querySelectorAll('input[name="cash-type"]').forEach(r => r.checked = false);
+  document.getElementById('f-shipping-check').checked = false;
+  document.getElementById('f-shipping').style.display = 'none';
+  document.getElementById('f-shipping').value = '';
+  document.getElementById('total-display').style.display = 'none';
   document.getElementById('product-rows').innerHTML = '';
   rowCounter = 0;
   addProductRow();
@@ -620,7 +700,8 @@ function renderList() {
         ${r.category ? '<span class="badge">' + esc(r.category) + '</span>' : ''}
         ${r.subcategory ? '<span class="badge">' + esc(r.subcategory) + '</span>' : ''}
         ${r.channel ? '<span class="badge">' + esc(r.channel) + '</span>' : ''}
-        ${r.payment ? '<span class="badge" style="background:#f0f8f0;color:#2a7a4b;">' + esc(r.payment) + '</span>' : ''}
+        ${r.payment ? '<span class="badge" style="background:#f0f8f0;color:#2a7a4b;">' + esc(r.payment) + (r.paymentDetail ? '・' + esc(r.paymentDetail) : '') + '</span>' : ''}
+        ${r.shipping > 0 ? '<span class="badge" style="background:#fff8e8;color:#b07400;">送料 ¥' + Number(r.shipping).toLocaleString() + '</span>' : ''}
       </div>
       ${r.store ? '<div class="record-meta" style="margin-top:3px;">🏪 ' + esc(r.store) + '</div>' : ''}
       ${r.purchaseCount > 1 ? '<div class="record-meta" style="margin-top:3px;">🔁 購入' + r.purchaseCount + '回目　初回: ' + fmtDate(r.firstDate) + '</div>' : ''}
@@ -644,6 +725,16 @@ function editRecord(id) {
   refreshChannelSelect();
   document.getElementById('f-channel').value = r.channel || '';
   refreshPaymentSelect(r.payment || '');
+  onPaymentChange();
+  if (r.paymentDetail) {
+    const radio = document.querySelector(`input[name="cash-type"][value="${r.paymentDetail}"]`);
+    if (radio) radio.checked = true;
+  }
+  const hasShipping = r.shipping > 0;
+  document.getElementById('f-shipping-check').checked = hasShipping;
+  document.getElementById('f-shipping').style.display = hasShipping ? 'block' : 'none';
+  document.getElementById('f-shipping').value = hasShipping ? r.shipping : '';
+  updateTotal();
   // Reset to 1 row with this record's product
   document.getElementById('product-rows').innerHTML = '';
   rowCounter = 0;
@@ -695,7 +786,7 @@ function renderStats() {
 }
 
 // ── CSV Export ────────────────────────────────────────────────────
-const CSV_HEADERS = ['日付','商品','単価','個数','価格(最高)','ブランド','カテゴリ','サブカテゴリ','購入店舗','チャネル','支払方法','初回購入日','最終購入日','購入回数'];
+const CSV_HEADERS = ['日付','商品','単価','個数','価格(最高)','ブランド','カテゴリ','サブカテゴリ','購入店舗','チャネル','支払方法','支払詳細','送料','初回購入日','最終購入日','購入回数'];
 
 function exportCSV() {
   const records = getRecords();
@@ -705,7 +796,8 @@ function exportCSV() {
     r.unitPrice !== undefined && r.unitPrice !== '' ? r.unitPrice : '',
     r.quantity  !== undefined && r.quantity  !== '' ? r.quantity  : '',
     r.price     !== undefined && r.price     !== '' ? r.price     : '',
-    r.brand||'', r.category||'', r.subcategory||'', r.store||'', r.channel||'', r.payment||'',
+    r.brand||'', r.category||'', r.subcategory||'', r.store||'', r.channel||'',
+    r.payment||'', r.paymentDetail||'', r.shipping > 0 ? r.shipping : '',
     r.firstDate||'', r.lastDate||'', r.purchaseCount||''
   ].map(v => '"' + String(v).replace(/"/g,'""') + '"').join(','));
   const csv = '﻿' + [CSV_HEADERS.join(','), ...rows].join('\r\n');
@@ -753,7 +845,9 @@ function processCSV(text) {
   const iSubCat    = col('サブカテゴリ');
   const iStore     = col('購入店舗');
   const iChannel   = col('チャネル');
-  const iPayment   = col('支払方法');
+  const iPayment        = col('支払方法');
+  const iPaymentDetail  = col('支払詳細');
+  const iShipping       = col('送料');
 
   if (iDate === -1 || iProduct === -1) {
     showImportResult('<p style="color:var(--danger)">CSVの形式が認識できません。<br>「日付」と「商品」列が必要です。</p>', 0, 0, 0);
@@ -790,7 +884,9 @@ function processCSV(text) {
       subcategory: get(iSubCat),
       store:       get(iStore),
       channel:     get(iChannel),
-      payment:     get(iPayment),
+      payment:        get(iPayment),
+      paymentDetail:  get(iPaymentDetail),
+      shipping:       get(iShipping) !== '' && !isNaN(Number(get(iShipping))) ? Number(get(iShipping)) : 0,
     };
     const key = dupKey(rec);
     if (existingKeys.has(key)) { skipped++; continue; }
@@ -978,7 +1074,8 @@ function renderSearchResults(records, words) {
         ${brandHL ? '<span class="badge">' + brandHL + '</span>' : ''}
         ${r.category ? '<span class="badge">' + highlight(r.category, words) + '</span>' : ''}
         ${r.channel  ? '<span class="badge">' + esc(r.channel) + '</span>' : ''}
-        ${r.payment  ? '<span class="badge" style="background:#f0f8f0;color:#2a7a4b;">' + esc(r.payment) + '</span>' : ''}
+        ${r.payment  ? '<span class="badge" style="background:#f0f8f0;color:#2a7a4b;">' + esc(r.payment) + (r.paymentDetail ? '・' + esc(r.paymentDetail) : '') + '</span>' : ''}
+        ${r.shipping > 0 ? '<span class="badge" style="background:#fff8e8;color:#b07400;">送料 ¥' + Number(r.shipping).toLocaleString() + '</span>' : ''}
       </div>
       ${r.store ? '<div class="record-meta" style="margin-top:3px;">🏪 ' + highlight(r.store, words) + '</div>' : ''}
       ${r.purchaseCount > 1 ? '<div class="record-meta" style="margin-top:3px;">🔁 購入' + r.purchaseCount + '回目　初回: ' + fmtDate(r.firstDate) + '</div>' : ''}
