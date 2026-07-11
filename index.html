@@ -211,7 +211,7 @@
       </div>
       <div class="field" id="wrap-store">
         <label>購入店舗</label>
-        <input type="text" id="f-store" placeholder="例: イオン" autocomplete="off" oninput="acInput(this,'store')" onfocus="acInput(this,'store')">
+        <input type="text" id="f-store" placeholder="例: イオン" autocomplete="off" oninput="acInput(this,'store');updateAutoFields()" onfocus="acInput(this,'store')">
         <div class="autocomplete-list" id="ac-store" style="display:none"></div>
       </div>
     </div>
@@ -241,7 +241,7 @@
     </div>
 
     <div class="divider"></div>
-    <p class="section-title">自動計算（同一商品の過去データより）</p>
+    <p class="section-title">自動計算（同一商品・同一店舗の過去データより）</p>
     <div class="auto-grid">
       <div class="auto-item"><div class="auto-label">初回購入日</div><div class="auto-value" id="disp-first">—</div></div>
       <div class="auto-item"><div class="auto-label">最終購入日</div><div class="auto-value" id="disp-last">—</div></div>
@@ -387,6 +387,9 @@ window.onload = function() {
   refreshChannelSelect();
   refreshPaymentSelect();
   addProductRow();
+  // 既存データを最新のカウント方式（商品＋店舗）で再計算
+  const _records = getRecords();
+  if (_records.length) { recalcAutoFields(_records); saveRecords(_records); }
   document.addEventListener('click', e => {
     if (!e.target.closest('[id^="wrap-"]') && !e.target.closest('.ac-wrap')) {
       document.querySelectorAll('.autocomplete-list').forEach(l => l.style.display = 'none');
@@ -560,7 +563,8 @@ function updateAutoFieldsFromRow(productName) {
     return;
   }
   const curDate = document.getElementById('f-date').value;
-  const existing = getRecords().filter(r => r.product === productName && r.id !== editId);
+  const curStore = document.getElementById('f-store').value.trim();
+  const existing = getRecords().filter(r => r.product === productName && (r.store || '') === curStore && r.id !== editId);
   const dates = existing.map(r => r.date).filter(Boolean).sort();
   const allDates = [...dates];
   if (curDate) allDates.push(curDate);
@@ -609,14 +613,20 @@ function saveRecord() {
   resetForm();
 }
 
+// 商品名＋購入店舗の組み合わせでカウント（同じ商品でも店舗が違えば別集計）
+function productKey(r) {
+  return (r.product || '') + '|' + (r.store || '');
+}
+
 function recalcAutoFields(records) {
   const productMap = {};
   records.forEach(r => {
-    if (!productMap[r.product]) productMap[r.product] = [];
-    if (r.date) productMap[r.product].push(r.date);
+    const k = productKey(r);
+    if (!productMap[k]) productMap[k] = [];
+    if (r.date) productMap[k].push(r.date);
   });
   records.forEach(r => {
-    const dates = (productMap[r.product] || []).slice().sort();
+    const dates = (productMap[productKey(r)] || []).slice().sort();
     r.firstDate = dates[0] || '';
     r.lastDate = dates[dates.length-1] || '';
     r.purchaseCount = dates.length;
