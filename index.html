@@ -767,11 +767,11 @@ function editRecord(id) {
   document.getElementById('f-shipping-check').checked = hasShipping;
   document.getElementById('f-shipping').style.display = hasShipping ? 'block' : 'none';
   document.getElementById('f-shipping').value = hasShipping ? r.shipping : '';
-  updateTotal();
   // Reset to 1 row with this record's product
   document.getElementById('product-rows').innerHTML = '';
   rowCounter = 0;
-  addProductRow(r.product, r.unitPrice !== undefined ? r.unitPrice : r.price, r.quantity || 1);
+  addProductRow(r.product, r.unitPrice !== undefined && r.unitPrice !== '' ? r.unitPrice : r.price, r.quantity || 1);
+  updateTotal();
   updateAutoFieldsFromRow(r.product);
   document.getElementById('save-btn').textContent = '更新する';
   showTab('add');
