@@ -929,13 +929,15 @@ function processCSV(text, mode) {
     const date    = normalizeDate(get(iDate));
     const product = get(iProduct);
     if (!product) { invalid++; continue; }
-    const unitPriceStr = get(iUnitPrice);
-    const quantityStr  = get(iQuantity);
-    const priceStr     = get(iPrice);
-    const unitPrice = unitPriceStr !== '' && !isNaN(Number(unitPriceStr)) ? Number(unitPriceStr) : '';
-    const quantity  = quantityStr  !== '' && !isNaN(Number(quantityStr))  ? Number(quantityStr)  : '';
+    // カンマ・¥・円・空白付きの数値も解析（Excel編集で書式が付くため）
+    const toNum = s => {
+      s = String(s).replace(/[¥￥,，円\s"]/g, '');
+      return s !== '' && !isNaN(Number(s)) ? Number(s) : '';
+    };
+    const unitPrice = toNum(get(iUnitPrice));
+    const quantity  = toNum(get(iQuantity));
     const price     = unitPrice !== '' && quantity !== '' ? unitPrice * quantity
-                    : priceStr !== '' && !isNaN(Number(priceStr)) ? Number(priceStr) : '';
+                    : toNum(get(iPrice));
     const rec = {
       id: Date.now().toString() + Math.random().toString(36).slice(2,6),
       date, product, unitPrice, quantity, price,
@@ -946,7 +948,7 @@ function processCSV(text, mode) {
       channel:     get(iChannel),
       payment:        get(iPayment),
       paymentDetail:  get(iPaymentDetail),
-      shipping:       get(iShipping) !== '' && !isNaN(Number(get(iShipping))) ? Number(get(iShipping)) : 0,
+      shipping:       toNum(get(iShipping)) || 0,
     };
     const key = dupKey(rec);
     if (existingKeys.has(key)) { skipped++; continue; }
