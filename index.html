@@ -340,6 +340,16 @@
   </div>
 </div>
 
+<!-- Action Sheet (長押しメニュー) -->
+<div id="action-sheet" class="mode-modal" onclick="if(event.target===this)closeActionSheet()">
+  <div class="modal-box">
+    <h3 id="action-sheet-title" style="word-break:break-all;"></h3>
+    <button class="btn btn-primary" onclick="actionSheetEdit()">編集</button>
+    <button class="btn" style="background:#fef0f0;color:var(--danger);border:1.5px solid #fcc;margin-top:10px;" onclick="actionSheetDelete()">削除</button>
+    <button class="btn btn-outline" style="margin-top:10px;" onclick="closeActionSheet()">キャンセル</button>
+  </div>
+</div>
+
 <!-- Import Mode Modal -->
 <div id="import-mode-modal" class="mode-modal">
   <div class="modal-box">
@@ -788,13 +798,13 @@ function deleteRecord(id) {
   toast('削除しました');
 }
 
-// ── 一覧カードのジェスチャー（ダブルタップ=編集 / 長押し=削除） ────
+// ── 一覧カードのジェスチャー（長押し=編集/削除メニュー） ──────────
+let actionSheetId = null;
+
 function setupListGestures() {
   const list = document.getElementById('record-list');
   let pressTimer = null;
   let longPressFired = false;
-  let lastTapTime = 0;
-  let lastTapId = null;
 
   const cardId = e => {
     if (e.target.closest('button')) return null; // ボタン操作は除外
@@ -808,37 +818,42 @@ function setupListGestures() {
     longPressFired = false;
     pressTimer = setTimeout(() => {
       longPressFired = true;
-      deleteRecord(id);
+      openActionSheet(id);
     }, 600);
   }, {passive: true});
 
   list.addEventListener('touchmove', () => clearTimeout(pressTimer), {passive: true});
+  list.addEventListener('touchend', () => clearTimeout(pressTimer));
 
-  list.addEventListener('touchend', e => {
-    clearTimeout(pressTimer);
-    if (longPressFired) { e.preventDefault(); return; }
-    const id = cardId(e);
-    if (!id) return;
-    const now = Date.now();
-    if (id === lastTapId && now - lastTapTime < 350) {
-      lastTapId = null;
-      editRecord(id);
-    } else {
-      lastTapId = id;
-      lastTapTime = now;
-    }
-  });
-
-  // PC用：ダブルクリック=編集
-  list.addEventListener('dblclick', e => {
-    const id = cardId(e);
-    if (id) editRecord(id);
-  });
-
-  // 長押し時のコンテキストメニューを抑止
+  // PC用：右クリックでメニュー
   list.addEventListener('contextmenu', e => {
+    const id = cardId(e);
     if (e.target.closest('.record-card')) e.preventDefault();
+    if (id) openActionSheet(id);
   });
+}
+
+function openActionSheet(id) {
+  const r = getRecords().find(x => x.id === id);
+  if (!r) return;
+  actionSheetId = id;
+  document.getElementById('action-sheet-title').textContent = r.product || '';
+  document.getElementById('action-sheet').classList.add('open');
+}
+
+function actionSheetEdit() {
+  closeActionSheet();
+  if (actionSheetId) editRecord(actionSheetId);
+}
+
+function actionSheetDelete() {
+  const id = actionSheetId;
+  closeActionSheet();
+  if (id) deleteRecord(id);
+}
+
+function closeActionSheet() {
+  document.getElementById('action-sheet').classList.remove('open');
 }
 
 // ── Stats ─────────────────────────────────────────────────────────
