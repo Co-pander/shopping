@@ -547,38 +547,53 @@ function getProductRows() {
   return rows;
 }
 
-// ── 送料・代引手数料・合計 ─────────────────────────────────────────
-// チェックボックス＋金額入力欄のペアを共通処理（送料・代引手数料）
-function getFee(checkId, inputId) {
-  return $(checkId).checked ? (parseFloat($(inputId).value) || 0) : 0;
+// ── 追加費用（送料・代引手数料）・合計 ─────────────────────────────
+// 「チェックボックス＋金額入力」型の費用項目はここに定義を追加するだけで
+// 保存・編集・リセット・合計表示・一覧チップに反映される
+const FEES = [
+  { key: 'shipping', check: 'f-shipping-check', input: 'f-shipping', label: '送料',       badgeStyle: 'background:#fff8e8;color:#b07400;' },
+  { key: 'codFee',   check: 'f-codfee-check',   input: 'f-codfee',   label: '代引手数料', badgeStyle: 'background:#f3eefa;color:#6b4a99;' },
+];
+
+function getFee(fee) {
+  return $(fee.check).checked ? (parseFloat($(fee.input).value) || 0) : 0;
 }
 
-function toggleFee(checkId, inputId) {
-  const checked = $(checkId).checked;
-  $(inputId).style.display = checked ? 'block' : 'none';
-  if (!checked) $(inputId).value = '';
+// value: 数値（0/undefinedならチェック解除して欄をクリア）
+function setFee(fee, value) {
+  const has = value > 0;
+  $(fee.check).checked = has;
+  $(fee.input).style.display = has ? 'block' : 'none';
+  $(fee.input).value = has ? value : '';
+}
+
+function toggleFee(fee) {
+  const checked = $(fee.check).checked;
+  $(fee.input).style.display = checked ? 'block' : 'none';
+  if (!checked) $(fee.input).value = '';
   updateTotal();
 }
 
-const getShipping = () => getFee('f-shipping-check', 'f-shipping');
-const getCodFee   = () => getFee('f-codfee-check', 'f-codfee');
-const toggleShipping = () => toggleFee('f-shipping-check', 'f-shipping');
-const toggleCodFee   = () => toggleFee('f-codfee-check', 'f-codfee');
+// HTMLのonchangeから呼ばれるラッパー
+const toggleShipping = () => toggleFee(FEES[0]);
+const toggleCodFee   = () => toggleFee(FEES[1]);
+
+function readFees() {
+  return Object.fromEntries(FEES.map(f => [f.key, getFee(f)]));
+}
 
 function updateTotal() {
   const rows = getProductRows();
   const subtotal = rows.reduce((s, r) => s + (r.price || 0), 0);
-  const shipping = getShipping();
-  const codFee = getCodFee();
+  const feeItems = FEES.map(f => ({ ...f, value: getFee(f) })).filter(f => f.value > 0);
   const disp = $('total-display');
-  const show = rows.length > 1 || shipping > 0 || codFee > 0;
-  if (!show) { disp.style.display = 'none'; return; }
+  if (rows.length <= 1 && !feeItems.length) { disp.style.display = 'none'; return; }
   disp.style.display = 'flex';
   let html = '';
   if (rows.length > 0) html += `<span class="total-item">小計 ${fmtYen(subtotal)}</span>`;
-  if (shipping > 0) html += `<span class="total-item">＋ 送料 ${fmtYen(shipping)}</span>`;
-  if (codFee > 0) html += `<span class="total-item">＋ 代引手数料 ${fmtYen(codFee)}</span>`;
-  html += `<span class="total-sum">合計 ${fmtYen(subtotal + shipping + codFee)}</span>`;
+  feeItems.forEach(f => html += `<span class="total-item">＋ ${f.label} ${fmtYen(f.value)}</span>`);
+  const total = subtotal + feeItems.reduce((s, f) => s + f.value, 0);
+  html += `<span class="total-sum">合計 ${fmtYen(total)}</span>`;
   disp.innerHTML = html;
 }
 
@@ -709,8 +724,7 @@ function readFormCommon() {
     channel: $('f-channel').value,
     payment: $('f-payment').value,
     paymentDetail: getCashDetail(),
-    shipping: getShipping(),
-    codFee: getCodFee(),
+    ...readFees(),
   };
 }
 
@@ -746,10 +760,8 @@ function resetForm() {
   $('f-channel').value = '';
   $('f-payment').value = '';
   setCashDetail('');
-  $('f-shipping-check').checked = false;
-  toggleShipping();
-  $('f-codfee-check').checked = false;
-  toggleCodFee();
+  FEES.forEach(f => setFee(f, 0));
+  updateTotal();
   $('product-rows').innerHTML = '';
   rowCounter = 0;
   addProductRow();
@@ -770,14 +782,7 @@ function editRecord(id) {
   $('f-channel').value = r.channel || '';
   refreshPaymentSelect(r.payment || '');
   setCashDetail(r.paymentDetail);
-  const hasShipping = r.shipping > 0;
-  $('f-shipping-check').checked = hasShipping;
-  $('f-shipping').style.display = hasShipping ? 'block' : 'none';
-  $('f-shipping').value = hasShipping ? r.shipping : '';
-  const hasCodFee = r.codFee > 0;
-  $('f-codfee-check').checked = hasCodFee;
-  $('f-codfee').style.display = hasCodFee ? 'block' : 'none';
-  $('f-codfee').value = hasCodFee ? r.codFee : '';
+  FEES.forEach(f => setFee(f, r[f.key]));
   // 商品行を1行にリセットしてこのレコードの内容を反映
   $('product-rows').innerHTML = '';
   rowCounter = 0;
@@ -810,8 +815,7 @@ function recordCardBody(r, hl = esc) {
     r.subcategory && badge(hl(r.subcategory)),
     r.channel     && badge(esc(r.channel)),
     r.payment     && badge(esc(r.payment) + (r.paymentDetail ? '・' + esc(r.paymentDetail) : ''), 'background:#f0f8f0;color:#2a7a4b;'),
-    r.shipping > 0 && badge('送料 ' + fmtYen(r.shipping), 'background:#fff8e8;color:#b07400;'),
-    r.codFee > 0   && badge('代引手数料 ' + fmtYen(r.codFee), 'background:#f3eefa;color:#6b4a99;'),
+    ...FEES.map(f => r[f.key] > 0 && badge(f.label + ' ' + fmtYen(r[f.key]), f.badgeStyle)),
   ].filter(Boolean).join('\n        ');
   return `
       <div class="record-header">
