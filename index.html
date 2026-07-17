@@ -6,7 +6,7 @@
 <title>購入記録</title>
 
 <!-- PWA -->
-<meta name="theme-color" content="#4a90d9">
+<meta name="theme-color" content="#2196d1">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -16,23 +16,24 @@
 <link rel="manifest" href="manifest.json">
 <style>
   :root {
-    --primary: #4a90d9;
-    --primary-dark: #357abd;
+    --primary: #2196d1;        /* アイコンのブルー */
+    --primary-dark: #1b7fb2;
+    --main-light: #6fcfb2;     /* アイコンのミントグリーン */
     --danger: #e74c3c;
     --success: #27ae60;
-    --bg: #f5f7fa;
+    --bg: #f2f8fa;             /* 淡いブルーの背景 */
     --card: #ffffff;
-    --border: #dde3ec;
+    --border: #d8e6ec;
     --text: #2c3e50;
     --muted: #8898aa;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif; background: var(--bg); color: var(--text); font-size: 15px; }
 
-  header { background: var(--primary); color: #fff; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+  header { background: linear-gradient(135deg, var(--main-light), var(--primary)); color: #fff; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(33,150,209,.25); }
   header h1 { font-size: 17px; font-weight: 700; }
   .header-btns { display: flex; gap: 8px; }
-  .tab-bar { display: flex; background: var(--primary-dark); }
+  .tab-bar { display: flex; background: linear-gradient(135deg, #55b89c, var(--primary-dark)); }
   .tab-btn { flex: 1; padding: 10px 4px; border: none; background: transparent; color: rgba(255,255,255,.75); font-size: 13px; font-weight: 600; cursor: pointer; transition: all .2s; }
   .tab-btn.active { color: #fff; border-bottom: 3px solid #fff; background: rgba(255,255,255,.1); }
 
