@@ -180,20 +180,8 @@
     <div id="product-rows"></div>
     <button class="add-row-btn" onclick="addProductRow()">＋ 商品を追加</button>
 
-    <div class="shipping-row">
-      <label class="shipping-check-label">
-        <input type="checkbox" id="f-shipping-check" onchange="toggleShipping()">
-        送料あり
-      </label>
-      <input type="number" id="f-shipping" class="shipping-input" placeholder="送料（円）" min="0" style="display:none;" oninput="updateTotal()">
-    </div>
-    <div class="shipping-row">
-      <label class="shipping-check-label">
-        <input type="checkbox" id="f-codfee-check" onchange="toggleCodFee()">
-        代引手数料あり
-      </label>
-      <input type="number" id="f-codfee" class="shipping-input" placeholder="手数料（円）" min="0" style="display:none;" oninput="updateTotal()">
-    </div>
+    <!-- 送料・代引手数料の入力欄は FEES 定義から自動生成 -->
+    <div id="fee-rows"></div>
     <div id="total-display" style="display:none;" class="total-display"></div>
 
     <div class="divider"></div>
@@ -201,12 +189,12 @@
     <div class="row2">
       <div class="field" id="wrap-brand">
         <label>ブランド</label>
-        <input type="text" id="f-brand" placeholder="例: サントリー" autocomplete="off" oninput="acInput(this,'brand')" onfocus="acInput(this,'brand')">
+        <input type="text" id="f-brand" placeholder="例: サントリー" autocomplete="off">
         <div class="autocomplete-list" id="ac-brand" style="display:none"></div>
       </div>
       <div class="field" id="wrap-category">
         <label>カテゴリ</label>
-        <input type="text" id="f-category" placeholder="例: 食料品" autocomplete="off" oninput="acInput(this,'category')" onfocus="acInput(this,'category')">
+        <input type="text" id="f-category" placeholder="例: 食料品" autocomplete="off">
         <div class="autocomplete-list" id="ac-category" style="display:none"></div>
       </div>
     </div>
@@ -214,12 +202,12 @@
     <div class="row2">
       <div class="field" id="wrap-subcategory">
         <label>サブカテゴリ</label>
-        <input type="text" id="f-subcategory" placeholder="例: 飲料" autocomplete="off" oninput="acInput(this,'subcategory')" onfocus="acInput(this,'subcategory')">
+        <input type="text" id="f-subcategory" placeholder="例: 飲料" autocomplete="off">
         <div class="autocomplete-list" id="ac-subcategory" style="display:none"></div>
       </div>
       <div class="field" id="wrap-store">
         <label>購入店舗</label>
-        <input type="text" id="f-store" placeholder="例: イオン" autocomplete="off" oninput="acInput(this,'store');updateAutoFields()" onfocus="acInput(this,'store')">
+        <input type="text" id="f-store" placeholder="例: イオン" autocomplete="off">
         <div class="autocomplete-list" id="ac-store" style="display:none"></div>
       </div>
     </div>
@@ -236,7 +224,7 @@
       <label>支払方法</label>
       <div class="channel-row">
         <div style="flex:1;position:relative;">
-          <select id="f-payment" onchange="onPaymentChange()"></select>
+          <select id="f-payment"></select>
           <div class="autocomplete-list" id="ac-payment" style="display:none"></div>
         </div>
         <button class="btn btn-outline btn-sm" onclick="addPayment()">＋追加</button>
@@ -383,10 +371,18 @@
 <script>
 /* ============================================================
    購入記録アプリ
-   構成: 定数・状態 / ユーティリティ / ストレージ / 選択肢 /
-         商品行 / 送料・合計 / 支払オプション / 入力補完 /
-         自動計算 / 保存・編集・削除 / カード描画 / ジェスチャー /
-         集計 / CSV出力・取込 / タブ / データ管理 / 初期化
+
+   ■ 項目を追加したいとき
+     - 入力欄（ブランド等）  → FORM_FIELDS に1行＋HTMLに入力欄
+     - 追加費用（送料等）    → FEES に1行（入力欄は自動生成）
+     - CSVの列              → CSV_COLUMNS に1行
+     いずれも定義に追記すれば、保存・編集・リセット・表示・CSVに反映される
+
+   ■ 構成
+     定数・状態 / ユーティリティ / ストレージ / 項目定義 / 選択肢 /
+     商品行 / 追加費用・合計 / 支払オプション / 入力補完 / 自動計算 /
+     保存・編集・削除 / カード描画 / 一覧 / ジェスチャー / 検索 /
+     集計 / CSV / タブ / データ管理 / 初期化
    ============================================================ */
 
 // ── 定数・状態 ─────────────────────────────────────────────────────
@@ -399,6 +395,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const todayStr = () => new Date().toISOString().split('T')[0];
 const fmtYen = v => (v !== '' && v !== undefined && v !== null) ? '¥' + Number(v).toLocaleString() : '—';
+const newId = () => Date.now().toString() + Math.random().toString(36).slice(2, 6);
 
 function fmtDate(d) {
   if (!d) return '—';
@@ -452,10 +449,31 @@ function listStore(storageKey, baseItems) {
 const channelStore = listStore('shopping_channels', ['Amazon', '楽天', '公式ECサイト']);
 const paymentStore = listStore('shopping_payments', ['現金', '銀行振込', 'クレジット']);
 
+// ── 項目定義 ───────────────────────────────────────────────────────
+// 商品行以外の入力欄（HTMLのid ↔ レコードのキー）
+// ac: 入力履歴のサジェストあり / after: 入力時に追加で呼ぶ処理
+const FORM_FIELDS = [
+  { id: 'f-date',        key: 'date' },
+  { id: 'f-brand',       key: 'brand',       ac: true },
+  { id: 'f-category',    key: 'category',    ac: true },
+  { id: 'f-subcategory', key: 'subcategory', ac: true },
+  { id: 'f-store',       key: 'store',       ac: true, after: () => updateAutoFields() },
+  { id: 'f-channel',     key: 'channel' },
+  { id: 'f-payment',     key: 'payment',     onChange: () => onPaymentChange() },
+];
+
+// 「チェックボックス＋金額入力」型の追加費用（入力欄はHTMLを自動生成）
+const FEES = [
+  { key: 'shipping', label: '送料',       placeholder: '送料（円）',   badgeStyle: 'background:#fff8e8;color:#b07400;' },
+  { key: 'codFee',   label: '代引手数料', placeholder: '手数料（円）', badgeStyle: 'background:#f3eefa;color:#6b4a99;' },
+].map(f => ({ ...f, check: `f-${f.key}-check`, input: `f-${f.key}` }));
+
 // ── 選択肢（セレクトボックス共通処理） ─────────────────────────────
+// current が候補に無い場合も選択肢に加える（CSV取込で入った値が消えないように）
 function fillSelect(sel, values, current, placeholder) {
+  const list = (current && !values.includes(current)) ? [...values, current] : values;
   sel.innerHTML = `<option value="">${placeholder}</option>`;
-  values.forEach(v => {
+  list.forEach(v => {
     const o = document.createElement('option');
     o.value = o.textContent = v;
     if (v === current) o.selected = true;
@@ -463,9 +481,9 @@ function fillSelect(sel, values, current, placeholder) {
   });
 }
 
-function refreshChannelSelect() {
+function refreshChannelSelect(curVal) {
   const sel = $('f-channel');
-  fillSelect(sel, channelStore.all(), sel.value, '選択してください');
+  fillSelect(sel, channelStore.all(), curVal !== undefined ? curVal : sel.value, '選択してください');
 }
 
 function refreshPaymentSelect(curVal) {
@@ -473,22 +491,17 @@ function refreshPaymentSelect(curVal) {
   fillSelect(sel, paymentStore.all(), curVal !== undefined ? curVal : sel.value, '選択してください');
 }
 
-function addChannel() {
-  const name = prompt('新しいチャネル名を入力してください:');
-  if (!name || !name.trim()) return;
-  channelStore.add(name.trim());
-  refreshChannelSelect();
-  $('f-channel').value = name.trim();
-  toast('チャネルを追加しました');
+// 選択肢を追加するプロンプト（チャネル・支払方法で共通）
+function addOption(store, refresh, promptLabel, name) {
+  const value = prompt(`新しい${promptLabel}を入力してください:`);
+  if (!value || !value.trim()) return;
+  store.add(value.trim());
+  refresh(value.trim());
+  toast(`${name}を追加しました`);
 }
 
-function addPayment() {
-  const name = prompt('新しい支払方法を入力してください:');
-  if (!name || !name.trim()) return;
-  paymentStore.add(name.trim());
-  refreshPaymentSelect(name.trim());
-  toast('支払方法を追加しました');
-}
+const addChannel = () => addOption(channelStore, refreshChannelSelect, 'チャネル名', 'チャネル');
+const addPayment = () => addOption(paymentStore, refreshPaymentSelect, '支払方法', '支払方法');
 
 // ── 商品行 ─────────────────────────────────────────────────────────
 function addProductRow(product, unitPrice, quantity) {
@@ -535,6 +548,7 @@ function removeProductRow(btn) {
   updateTotal();
 }
 
+// 商品名が入っている行だけを {product, unitPrice, quantity, price} で返す
 function getProductRows() {
   const rows = [];
   document.querySelectorAll('#product-rows [data-row-id]').forEach(div => {
@@ -549,39 +563,40 @@ function getProductRows() {
 }
 
 // ── 追加費用（送料・代引手数料）・合計 ─────────────────────────────
-// 「チェックボックス＋金額入力」型の費用項目はここに定義を追加するだけで
-// 保存・編集・リセット・合計表示・一覧チップに反映される
-const FEES = [
-  { key: 'shipping', check: 'f-shipping-check', input: 'f-shipping', label: '送料',       badgeStyle: 'background:#fff8e8;color:#b07400;' },
-  { key: 'codFee',   check: 'f-codfee-check',   input: 'f-codfee',   label: '代引手数料', badgeStyle: 'background:#f3eefa;color:#6b4a99;' },
-];
-
-function getFee(fee) {
-  return $(fee.check).checked ? (parseFloat($(fee.input).value) || 0) : 0;
+// FEES の定義から入力欄を生成してイベントを紐付ける
+function renderFeeRows() {
+  $('fee-rows').innerHTML = FEES.map(f => `
+    <div class="shipping-row">
+      <label class="shipping-check-label">
+        <input type="checkbox" id="${f.check}">
+        ${f.label}あり
+      </label>
+      <input type="number" id="${f.input}" class="shipping-input" placeholder="${f.placeholder}" min="0" style="display:none;">
+    </div>`).join('');
+  FEES.forEach(f => {
+    $(f.check).onchange = () => toggleFee(f);
+    $(f.input).oninput = updateTotal;
+  });
 }
 
-// value: 数値（0/undefinedならチェック解除して欄をクリア）
-function setFee(fee, value) {
+const getFee = f => $(f.check).checked ? (parseFloat($(f.input).value) || 0) : 0;
+
+// value が0/未設定ならチェックを外して欄を隠す
+function setFee(f, value) {
   const has = value > 0;
-  $(fee.check).checked = has;
-  $(fee.input).style.display = has ? 'block' : 'none';
-  $(fee.input).value = has ? value : '';
+  $(f.check).checked = has;
+  $(f.input).style.display = has ? 'block' : 'none';
+  $(f.input).value = has ? value : '';
 }
 
-function toggleFee(fee) {
-  const checked = $(fee.check).checked;
-  $(fee.input).style.display = checked ? 'block' : 'none';
-  if (!checked) $(fee.input).value = '';
+function toggleFee(f) {
+  const checked = $(f.check).checked;
+  $(f.input).style.display = checked ? 'block' : 'none';
+  if (!checked) $(f.input).value = '';
   updateTotal();
 }
 
-// HTMLのonchangeから呼ばれるラッパー
-const toggleShipping = () => toggleFee(FEES[0]);
-const toggleCodFee   = () => toggleFee(FEES[1]);
-
-function readFees() {
-  return Object.fromEntries(FEES.map(f => [f.key, getFee(f)]));
-}
+const readFees = () => Object.fromEntries(FEES.map(f => [f.key, getFee(f)]));
 
 function updateTotal() {
   const rows = getProductRows();
@@ -618,24 +633,24 @@ function setCashDetail(value) {
 }
 
 // ── 入力補完（過去の入力履歴からサジェスト） ──────────────────────
-const AC_FIELDS = { brand: r => r.brand, category: r => r.category, subcategory: r => r.subcategory, store: r => r.store };
-
 // 直近に登録したものが先頭に来るよう、新しい順で重複を除いて返す
 // （検索タブの絞り込みリストは呼び出し側で五十音順に並べ替えて使用）
 function distinctValues(getter) {
   return [...new Set(getRecords().slice().reverse().map(getter).filter(Boolean))];
 }
 
-function acInput(el, field) {
-  const q = el.value.trim().toLowerCase();
-  const values = distinctValues(AC_FIELDS[field]);
-  showAC('ac-' + field, q ? values.filter(v => v.toLowerCase().includes(q)) : values, el);
+function suggest(listId, inputEl, values, onSelect) {
+  const q = inputEl.value.trim().toLowerCase();
+  const filtered = q ? values.filter(v => v.toLowerCase().includes(q)) : values;
+  showAC(listId, filtered, inputEl, onSelect);
 }
 
+// 共通入力欄（ブランド・カテゴリ・サブカテゴリ・購入店舗）
+const acInput = (el, key) => suggest('ac-' + key, el, distinctValues(r => r[key]));
+
+// 商品行の商品名欄
 function acRowInput(el, rowId) {
-  const q = el.value.trim().toLowerCase();
-  const values = distinctValues(r => r.product);
-  showAC('ac-row-' + rowId, q ? values.filter(v => v.toLowerCase().includes(q)) : values, el, updateAutoFields);
+  suggest('ac-row-' + rowId, el, distinctValues(r => r.product), updateAutoFields);
   updateAutoFieldsFromRow(el.value.trim());
 }
 
@@ -646,8 +661,8 @@ function onProductBlur(el) {
 function showAC(id, items, inputEl, onSelect) {
   const list = $(id);
   if (!list) return;
-  if (!items.length) { list.style.display = 'none'; return; }
   list.innerHTML = '';
+  if (!items.length) { list.style.display = 'none'; return; }
   items.slice(0, 20).forEach(item => {
     const d = document.createElement('div');
     d.textContent = item;
@@ -665,9 +680,7 @@ function showAC(id, items, inputEl, onSelect) {
 
 // ── 自動計算（初回・最終購入日／購入回数） ────────────────────────
 // 商品名＋購入店舗の組み合わせで集計（同じ商品でも店舗が違えば別扱い）
-function productKey(r) {
-  return (r.product || '') + '|' + (r.store || '');
-}
+const productKey = r => (r.product || '') + '|' + (r.store || '');
 
 function recalcAutoFields(records) {
   const dateMap = {};
@@ -712,23 +725,12 @@ function updateAutoFieldsFromRow(productName) {
 }
 
 // ── 保存・編集・削除 ───────────────────────────────────────────────
-function newId() {
-  return Date.now().toString() + Math.random().toString(36).slice(2, 6);
-}
-
 // フォームの共通項目（商品行以外）を読み取る
 function readFormCommon() {
-  return {
-    date: $('f-date').value,
-    brand: $('f-brand').value.trim(),
-    category: $('f-category').value.trim(),
-    subcategory: $('f-subcategory').value.trim(),
-    store: $('f-store').value.trim(),
-    channel: $('f-channel').value,
-    payment: $('f-payment').value,
-    paymentDetail: getCashDetail(),
-    ...readFees(),
-  };
+  const common = {};
+  FORM_FIELDS.forEach(f => common[f.key] = $(f.id).value.trim());
+  common.paymentDetail = getCashDetail();
+  return { ...common, ...readFees() };
 }
 
 function saveRecord() {
@@ -758,17 +760,27 @@ function saveRecord() {
   resetForm();
 }
 
-function resetForm() {
-  $('f-date').value = todayStr();
-  ['f-brand', 'f-category', 'f-subcategory', 'f-store'].forEach(id => $(id).value = '');
-  $('f-channel').value = '';
-  $('f-payment').value = '';
-  setCashDetail('');
-  FEES.forEach(f => setFee(f, 0));
+// 商品行を作り直す（record省略で空の1行）
+function rebuildProductRows(record) {
   $('product-rows').innerHTML = '';
   rowCounter = 0;
-  addProductRow();
+  if (record) {
+    const unit = (record.unitPrice !== undefined && record.unitPrice !== '') ? record.unitPrice : record.price;
+    addProductRow(record.product, unit, record.quantity || 1);
+  } else {
+    addProductRow();
+  }
   updateTotal();
+}
+
+function resetForm() {
+  refreshChannelSelect('');
+  refreshPaymentSelect('');
+  FORM_FIELDS.forEach(f => $(f.id).value = '');
+  $('f-date').value = todayStr();
+  setCashDetail('');
+  FEES.forEach(f => setFee(f, 0));
+  rebuildProductRows();
   setAutoFieldDisplay('—', '—', '—');
   editId = null;
 }
@@ -777,21 +789,13 @@ function editRecord(id) {
   const r = getRecords().find(x => x.id === id);
   if (!r) return;
   editId = id;
-  $('f-date').value = r.date || '';
-  $('f-brand').value = r.brand || '';
-  $('f-category').value = r.category || '';
-  $('f-subcategory').value = r.subcategory || '';
-  $('f-store').value = r.store || '';
-  refreshChannelSelect();
-  $('f-channel').value = r.channel || '';
+  // 選択肢を作り直してから値を流し込む（CSV由来の未登録値もそのまま復元される）
+  refreshChannelSelect(r.channel || '');
   refreshPaymentSelect(r.payment || '');
+  FORM_FIELDS.forEach(f => $(f.id).value = r[f.key] || '');
   setCashDetail(r.paymentDetail);
   FEES.forEach(f => setFee(f, r[f.key]));
-  // 商品行を1行にリセットしてこのレコードの内容を反映
-  $('product-rows').innerHTML = '';
-  rowCounter = 0;
-  addProductRow(r.product, (r.unitPrice !== undefined && r.unitPrice !== '') ? r.unitPrice : r.price, r.quantity || 1);
-  updateTotal();
+  rebuildProductRows(r);
   updateAutoFieldsFromRow(r.product);
   $('save-btn').textContent = '更新する';
   showTab('add');
@@ -834,10 +838,12 @@ function recordCardBody(r, hl = esc) {
       ${r.purchaseCount > 1 ? `<div class="record-meta" style="margin-top:3px;">🔁 購入${r.purchaseCount}回目　初回: ${fmtDate(r.firstDate)}</div>` : ''}`;
 }
 
+const byDateDesc = (a, b) => (b.date || '').localeCompare(a.date || '');
+
 // ── 一覧タブ ───────────────────────────────────────────────────────
 function renderList() {
   const q = ($('search-input').value || '').toLowerCase();
-  let records = getRecords().slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  let records = getRecords().slice().sort(byDateDesc);
   if (q) records = records.filter(r =>
     [r.product, r.brand, r.category, r.store].some(v => (v || '').toLowerCase().includes(q)));
   const el = $('record-list');
@@ -867,8 +873,7 @@ function setupListGestures() {
 
   list.addEventListener('touchstart', e => {
     const id = cardId(e);
-    if (!id) return;
-    pressTimer = setTimeout(() => openActionSheet(id), 600);
+    if (id) pressTimer = setTimeout(() => openActionSheet(id), 600);
   }, { passive: true });
 
   list.addEventListener('touchmove', () => clearTimeout(pressTimer), { passive: true });
@@ -901,13 +906,13 @@ function actionSheetDelete() {
   if (id) deleteRecord(id);
 }
 
-function closeActionSheet() { hideModal('action-sheet'); }
+const closeActionSheet = () => hideModal('action-sheet');
 
 // ── 検索タブ ───────────────────────────────────────────────────────
 function initSearchTab() {
-  fillSelect($('s-channel'),  distinctValues(r => r.channel).sort(),  $('s-channel').value,  'すべて');
-  fillSelect($('s-category'), distinctValues(r => r.category).sort(), $('s-category').value, 'すべて');
-  fillSelect($('s-payment'),  distinctValues(r => r.payment).sort(),  $('s-payment').value,  'すべて');
+  // 絞り込みリストは目的の項目を探しやすいよう五十音順
+  [['s-channel', 'channel'], ['s-category', 'category'], ['s-payment', 'payment']]
+    .forEach(([id, key]) => fillSelect($(id), distinctValues(r => r[key]).sort(), $(id).value, 'すべて'));
 
   document.querySelectorAll('.period-btn').forEach(btn => {
     btn.onclick = function() {
@@ -950,7 +955,7 @@ function runSearch() {
       if (dateTo && r.date && r.date > dateTo) return false;
     }
     return true;
-  }).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  }).sort(byDateDesc);
 
   renderSearchResults(results, words);
 }
@@ -981,31 +986,35 @@ function highlight(text, words) {
 }
 
 // ── 集計タブ ───────────────────────────────────────────────────────
+// key別に金額を合計して降順に並べる
+function sumBy(records, keyFn) {
+  const map = {};
+  records.forEach(r => {
+    const k = keyFn(r);
+    if (k) map[k] = (map[k] || 0) + (r.price || 0);
+  });
+  return Object.entries(map).sort((a, b) => b[1] - a[1]);
+}
+
 function renderStats() {
   const records = getRecords();
   const total = records.reduce((s, r) => s + (r.price || 0), 0);
-  const months = {};
-  records.forEach(r => {
-    if (r.date) { const m = r.date.slice(0, 7); months[m] = (months[m] || 0) + (r.price || 0); }
-  });
+  const months = sumBy(records, r => r.date ? r.date.slice(0, 7) : '');
   const thisMonth = todayStr().slice(0, 7);
+  const monthTotal = (months.find(([m]) => m === thisMonth) || [, 0])[1];
+
   $('stats-grid').innerHTML = `
     <div class="stat-card"><div class="stat-value">${records.length}</div><div class="stat-label">総記録件数</div></div>
     <div class="stat-card"><div class="stat-value">${fmtYen(total)}</div><div class="stat-label">総購入金額</div></div>
-    <div class="stat-card"><div class="stat-value">${fmtYen(months[thisMonth] || 0)}</div><div class="stat-label">今月の支出</div></div>
-    <div class="stat-card"><div class="stat-value">${Object.keys(months).length}</div><div class="stat-label">購入月数</div></div>
+    <div class="stat-card"><div class="stat-value">${fmtYen(monthTotal)}</div><div class="stat-label">今月の支出</div></div>
+    <div class="stat-card"><div class="stat-value">${months.length}</div><div class="stat-label">購入月数</div></div>
   `;
 
-  const catMap = {};
-  records.forEach(r => {
-    const k = r.category || '未設定';
-    catMap[k] = (catMap[k] || 0) + (r.price || 0);
-  });
-  const sorted = Object.entries(catMap).sort((a, b) => b[1] - a[1]);
-  const maxV = sorted[0]?.[1] || 1;
+  const byCategory = sumBy(records, r => r.category || '未設定');
+  const maxV = byCategory[0]?.[1] || 1;
   $('stats-category').innerHTML =
     '<p class="section-title">カテゴリ別支出</p>' +
-    (sorted.length ? sorted.map(([k, v]) => `
+    (byCategory.length ? byCategory.map(([k, v]) => `
       <div style="margin-bottom:10px;">
         <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
           <span>${esc(k)}</span><span style="font-weight:700;">${fmtYen(v)}</span>
@@ -1017,24 +1026,43 @@ function renderStats() {
     `).join('') : '<div style="color:var(--muted);font-size:14px;">データがありません</div>');
 }
 
-// ── CSV出力 ────────────────────────────────────────────────────────
-const CSV_HEADERS = ['日付', '商品', '単価', '個数', '価格(最高)', 'ブランド', 'カテゴリ', 'サブカテゴリ', '購入店舗', 'チャネル', '支払方法', '支払詳細', '送料', '代引手数料', '初回購入日', '最終購入日', '購入回数'];
+// ── CSV（列定義・出力・取込） ──────────────────────────────────────
+// type: text=そのまま / num=数値（カンマ・¥付きも解析） / date=日付正規化
+// blankIfZero: 0のとき空欄で出力 / derived: アプリが自動計算するため取込では無視
+const CSV_COLUMNS = [
+  { header: '日付',         key: 'date',          type: 'date' },
+  { header: '商品',         key: 'product',       type: 'text' },
+  { header: '単価',         key: 'unitPrice',     type: 'num'  },
+  { header: '個数',         key: 'quantity',      type: 'num'  },
+  { header: '価格(最高)',   key: 'price',         type: 'num'  },
+  { header: 'ブランド',     key: 'brand',         type: 'text' },
+  { header: 'カテゴリ',     key: 'category',      type: 'text' },
+  { header: 'サブカテゴリ', key: 'subcategory',   type: 'text' },
+  { header: '購入店舗',     key: 'store',         type: 'text' },
+  { header: 'チャネル',     key: 'channel',       type: 'text' },
+  { header: '支払方法',     key: 'payment',       type: 'text' },
+  { header: '支払詳細',     key: 'paymentDetail', type: 'text' },
+  { header: '送料',         key: 'shipping',      type: 'num', blankIfZero: true },
+  { header: '代引手数料',   key: 'codFee',        type: 'num', blankIfZero: true },
+  { header: '初回購入日',   key: 'firstDate',     type: 'date', derived: true },
+  { header: '最終購入日',   key: 'lastDate',      type: 'date', derived: true },
+  { header: '購入回数',     key: 'purchaseCount', type: 'num',  derived: true, blankIfZero: true },
+];
 
 function exportCSV() {
   const records = getRecords();
   if (!records.length) { toast('エクスポートするデータがありません'); return; }
-  const numOrEmpty = v => (v !== undefined && v !== '') ? v : '';
-  const rows = records
+  const cell = (r, c) => {
+    let v = r[c.key];
+    if (v === undefined || v === null) v = '';
+    if (c.blankIfZero && !(v > 0)) v = '';
+    return '"' + String(v).replace(/"/g, '""') + '"';
+  };
+  const rows = records.slice()
     .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
-    .map(r => [
-      r.date || '', r.product || '',
-      numOrEmpty(r.unitPrice), numOrEmpty(r.quantity), numOrEmpty(r.price),
-      r.brand || '', r.category || '', r.subcategory || '', r.store || '', r.channel || '',
-      r.payment || '', r.paymentDetail || '', r.shipping > 0 ? r.shipping : '', r.codFee > 0 ? r.codFee : '',
-      r.firstDate || '', r.lastDate || '', r.purchaseCount || '',
-    ].map(v => '"' + String(v).replace(/"/g, '""') + '"').join(','));
+    .map(r => CSV_COLUMNS.map(c => cell(r, c)).join(','));
   // BOM付きUTF-8（Excelで文字化けさせないため）
-  const csv = '﻿' + [CSV_HEADERS.join(','), ...rows].join('\r\n');
+  const csv = '﻿' + [CSV_COLUMNS.map(c => c.header).join(','), ...rows].join('\r\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
   a.download = 'shopping_' + todayStr().replace(/-/g, '') + '.csv';
@@ -1042,10 +1070,9 @@ function exportCSV() {
   toast('CSVをダウンロードしました');
 }
 
-// ── CSV取込 ────────────────────────────────────────────────────────
 let pendingCSVText = null;
 
-function triggerImport() { $('csv-file-input').click(); }
+const triggerImport = () => $('csv-file-input').click();
 
 function handleCSVImport(event) {
   const file = event.target.files[0];
@@ -1072,26 +1099,17 @@ function cancelImport() {
 }
 
 // 重複判定キー：日付＋商品＋価格
-function dupKey(r) {
-  return [r.date || '', r.product || '', String(r.price || '')].join('|');
-}
+const dupKey = r => [r.date || '', r.product || '', String(r.price || '')].join('|');
 
 // mode: 'merge' = 重複は読み込まない（差分のみ） / 'replace' = すべて上書き
 function processCSV(text, mode) {
-  text = text.replace(/^﻿/, '');
-  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  const lines = text.replace(/^﻿/, '').split(/\r?\n/).filter(l => l.trim());
   if (lines.length < 2) { toast('データが見つかりません'); return; }
 
   const headers = parseCSVRow(lines[0]).map(h => h.trim());
-  const col = name => headers.indexOf(name);
-  const C = {
-    date: col('日付'), product: col('商品'), unitPrice: col('単価'), quantity: col('個数'),
-    price: col('価格(最高)'), brand: col('ブランド'), category: col('カテゴリ'),
-    subcategory: col('サブカテゴリ'), store: col('購入店舗'), channel: col('チャネル'),
-    payment: col('支払方法'), paymentDetail: col('支払詳細'), shipping: col('送料'), codFee: col('代引手数料'),
-  };
+  const colIndex = Object.fromEntries(CSV_COLUMNS.map(c => [c.key, headers.indexOf(c.header)]));
 
-  if (C.date === -1 || C.product === -1) {
+  if (colIndex.date === -1 || colIndex.product === -1) {
     showImportResult('<p style="color:var(--danger)">CSVの形式が認識できません。<br>「日付」と「商品」列が必要です。</p>', 0);
     return;
   }
@@ -1105,26 +1123,18 @@ function processCSV(text, mode) {
   for (let i = 1; i < lines.length; i++) {
     const row = parseCSVRow(lines[i]);
     if (row.length < 2) { invalid++; continue; }
-    const get = idx => (idx >= 0 && idx < row.length) ? row[idx].trim() : '';
-    const product = get(C.product);
-    if (!product) { invalid++; continue; }
-    const unitPrice = toNum(get(C.unitPrice));
-    const quantity  = toNum(get(C.quantity));
-    const rec = {
-      id: newId(),
-      date: normalizeDate(get(C.date)),
-      product, unitPrice, quantity,
-      price: (unitPrice !== '' && quantity !== '') ? unitPrice * quantity : toNum(get(C.price)),
-      brand: get(C.brand),
-      category: get(C.category),
-      subcategory: get(C.subcategory),
-      store: get(C.store),
-      channel: get(C.channel),
-      payment: get(C.payment),
-      paymentDetail: get(C.paymentDetail),
-      shipping: toNum(get(C.shipping)) || 0,
-      codFee: toNum(get(C.codFee)) || 0,
-    };
+    const raw = idx => (idx >= 0 && idx < row.length) ? row[idx].trim() : '';
+
+    const rec = { id: newId() };
+    CSV_COLUMNS.filter(c => !c.derived).forEach(c => {
+      const v = raw(colIndex[c.key]);
+      rec[c.key] = c.type === 'num' ? toNum(v) : c.type === 'date' ? normalizeDate(v) : v;
+    });
+    if (!rec.product) { invalid++; continue; }
+    // 単価×個数を優先（価格列が空でも復元できるように）
+    if (rec.unitPrice !== '' && rec.quantity !== '') rec.price = rec.unitPrice * rec.quantity;
+    FEES.forEach(f => rec[f.key] = rec[f.key] || 0);
+
     const key = dupKey(rec);
     if (existingKeys.has(key)) { skipped++; continue; }
     existingKeys.add(key);
@@ -1146,6 +1156,7 @@ function processCSV(text, mode) {
   );
 }
 
+// ダブルクォート内のカンマ・改行エスケープに対応した1行パース
 function parseCSVRow(line) {
   const result = [];
   let inQuote = false, cur = '';
@@ -1171,19 +1182,18 @@ function showImportResult(html, added) {
   if (added > 0) renderList();
 }
 
-function closeModal() { hideModal('import-modal'); }
+const closeModal = () => hideModal('import-modal');
 
 // ── タブ ───────────────────────────────────────────────────────────
-const TAB_ORDER = { add: 0, list: 1, search: 2, stats: 3 };
+const TABS = ['add', 'list', 'search', 'stats'];
+const TAB_INIT = { list: renderList, search: initSearchTab, stats: renderStats };
 
 function showTab(name) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   $('tab-' + name).classList.add('active');
-  document.querySelectorAll('.tab-btn')[TAB_ORDER[name]].classList.add('active');
-  if (name === 'list') renderList();
-  if (name === 'stats') renderStats();
-  if (name === 'search') initSearchTab();
+  document.querySelectorAll('.tab-btn')[TABS.indexOf(name)].classList.add('active');
+  if (TAB_INIT[name]) TAB_INIT[name]();
 }
 
 // ── データ管理 ─────────────────────────────────────────────────────
@@ -1198,14 +1208,26 @@ function clearAllData() {
 
 // ── 初期化 ─────────────────────────────────────────────────────────
 window.onload = function() {
-  $('f-date').value = todayStr();
-  refreshChannelSelect();
-  refreshPaymentSelect();
-  addProductRow();
+  renderFeeRows();
+  refreshChannelSelect('');
+  refreshPaymentSelect('');
+  resetForm();
+
+  // 入力補完つきの欄にイベントを紐付け
+  FORM_FIELDS.filter(f => f.ac).forEach(f => {
+    const el = $(f.id);
+    const show = () => acInput(el, f.key);
+    el.addEventListener('focus', show);
+    el.addEventListener('input', () => { show(); if (f.after) f.after(); });
+  });
+  FORM_FIELDS.filter(f => f.onChange).forEach(f => $(f.id).addEventListener('change', f.onChange));
+
   // 既存データを最新のカウント方式（商品＋店舗）で再計算
   const records = getRecords();
   if (records.length) { recalcAutoFields(records); saveRecords(records); }
+
   setupListGestures();
+
   // 入力補完リストの外側をタップしたら閉じる
   document.addEventListener('click', e => {
     if (!e.target.closest('[id^="wrap-"]') && !e.target.closest('.ac-wrap')) {
