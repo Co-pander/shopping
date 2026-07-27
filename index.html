@@ -620,8 +620,10 @@ function setCashDetail(value) {
 // ── 入力補完（過去の入力履歴からサジェスト） ──────────────────────
 const AC_FIELDS = { brand: r => r.brand, category: r => r.category, subcategory: r => r.subcategory, store: r => r.store };
 
+// 直近に登録したものが先頭に来るよう、新しい順で重複を除いて返す
+// （検索タブの絞り込みリストは呼び出し側で五十音順に並べ替えて使用）
 function distinctValues(getter) {
-  return [...new Set(getRecords().map(getter).filter(Boolean))];
+  return [...new Set(getRecords().slice().reverse().map(getter).filter(Boolean))];
 }
 
 function acInput(el, field) {
