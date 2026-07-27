@@ -588,7 +588,7 @@ function updateTotal() {
   const subtotal = rows.reduce((s, r) => s + (r.price || 0), 0);
   const feeItems = FEES.map(f => ({ ...f, value: getFee(f) })).filter(f => f.value > 0);
   const disp = $('total-display');
-  if (rows.length <= 1 && !feeItems.length) { disp.style.display = 'none'; return; }
+  if (rows.length <= 1 && !feeItems.length) { disp.style.display = 'none'; disp.innerHTML = ''; return; }
   disp.style.display = 'flex';
   let html = '';
   if (rows.length > 0) html += `<span class="total-item">小計 ${fmtYen(subtotal)}</span>`;
@@ -739,9 +739,10 @@ function saveRecord() {
   const records = getRecords();
 
   if (editId) {
-    // 編集モード：先頭1行のみ反映
+    // 編集モード：先頭行で対象レコードを更新し、増やした行は新規レコードとして追加
     const idx = records.findIndex(r => r.id === editId);
     if (idx !== -1) records[idx] = { ...records[idx], ...common, ...productRows[0] };
+    productRows.slice(1).forEach(pRow => records.push({ id: newId(), ...common, ...pRow }));
     editId = null;
     $('save-btn').textContent = '記録を保存する';
   } else {
@@ -762,10 +763,10 @@ function resetForm() {
   $('f-payment').value = '';
   setCashDetail('');
   FEES.forEach(f => setFee(f, 0));
-  updateTotal();
   $('product-rows').innerHTML = '';
   rowCounter = 0;
   addProductRow();
+  updateTotal();
   setAutoFieldDisplay('—', '—', '—');
   editId = null;
 }
