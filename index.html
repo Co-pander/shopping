@@ -80,6 +80,9 @@
   .btn-outline { background: transparent; color: var(--primary); border: 1.5px solid var(--primary); }
   .btn-sm { padding: 6px 11px; font-size: 12px; width: auto; display: inline-block; font-weight: 700; border-radius: 6px; }
 
+  .form-actions { display: flex; gap: 10px; }
+  .form-actions .btn { flex: 1; }
+
   .channel-row { display: flex; gap: 8px; }
   .channel-row select { flex: 1; }
 
@@ -247,7 +250,10 @@
     <p style="font-size:11px;color:var(--muted);margin-top:6px;">※ 商品名が1つのとき・先頭行の商品を基準に表示</p>
   </div>
 
-  <button class="btn btn-primary" id="save-btn" onclick="saveRecord()">記録を保存する</button>
+  <div class="form-actions">
+    <button class="btn btn-outline" id="back-btn" onclick="cancelEdit()" style="display:none;">一覧に戻る</button>
+    <button class="btn btn-primary" id="save-btn" onclick="saveRecord()">記録を保存する</button>
+  </div>
 </div>
 
 <!-- SEARCH TAB -->
@@ -388,8 +394,9 @@
 
 // ── 定数・状態 ─────────────────────────────────────────────────────
 const DB_KEY = 'shopping_records';
-let editIds = [];        // 編集中レコードIDの一覧（空なら新規登録）
-let editCommon = null;   // 編集開始時の共通項目（変更されたものだけ全商品に反映するため）
+let editIds = [];            // 編集中レコードIDの一覧（空なら新規登録）
+let editCommon = null;       // 編集開始時の共通項目（変更されたものだけ全商品に反映するため）
+let editRowsSnapshot = null; // 編集開始時の商品行（変更の有無を判定するため）
 let rowCounter = 0;      // 商品行の連番
 
 // ── ユーティリティ ─────────────────────────────────────────────────
@@ -747,6 +754,30 @@ function purchaseGroup(rec, allRecords) {
   return allRecords.filter(r => purchaseKey(r) === key);
 }
 
+// 編集開始時からの変更点（商品行の削除・追加・値の変更、共通項目の変更）
+const rowsSignature = rows =>
+  JSON.stringify(rows.map(r => [r.recordId || '', r.product, r.unitPrice, r.quantity]));
+
+function pendingChanges() {
+  if (!editIds.length) return { changed: false, removedIds: [] };
+  const rows = getProductRows();
+  const keptIds = rows.map(r => r.recordId).filter(Boolean);
+  const removedIds = editIds.filter(id => !keptIds.includes(id));
+  const changed = removedIds.length > 0
+    || rowsSignature(rows) !== editRowsSnapshot
+    || JSON.stringify(readFormCommon()) !== JSON.stringify(editCommon);
+  return { changed, removedIds };
+}
+
+// 「一覧に戻る」：変更があれば破棄の確認をしてから閉じる
+function cancelEdit() {
+  const { changed, removedIds } = pendingChanges();
+  const detail = removedIds.length ? `削除した商品 ${removedIds.length} 件を含む変更` : '変更した内容';
+  if (changed && !confirm(`${detail}は保存されません。\n破棄して一覧に戻りますか？`)) return;
+  resetForm();
+  showTab('list');
+}
+
 function saveRecord() {
   const common = readFormCommon();
   if (!common.date) { toast('購入日を入力してください'); return; }
@@ -755,11 +786,11 @@ function saveRecord() {
   if (!productRows.length) { toast('商品名を少なくとも1つ入力してください'); return; }
 
   const records = getRecords();
+  const wasEditing = editIds.length > 0;
 
   if (editIds.length) {
     // 編集モード：行に紐づくレコードを更新し、増やした行は追加、消した行は削除
-    const keptIds = productRows.map(r => r.recordId).filter(Boolean);
-    const removedIds = editIds.filter(id => !keptIds.includes(id));
+    const { removedIds } = pendingChanges();
     if (removedIds.length &&
         !confirm(`削除した商品 ${removedIds.length} 件を記録から取り消します。よろしいですか？`)) return;
 
@@ -791,6 +822,7 @@ function saveRecord() {
   }
 
   resetForm();
+  if (wasEditing) showTab('list');   // 編集は「閉じる」操作なので一覧へ戻る
 }
 
 // 商品行を作り直す（省略時は空の1行）
@@ -819,8 +851,10 @@ function resetForm() {
   setAutoFieldDisplay('—', '—', '—');
   $('group-hint').style.display = 'none';
   $('save-btn').textContent = '記録を保存する';
+  $('back-btn').style.display = 'none';
   editIds = [];
   editCommon = null;
+  editRowsSnapshot = null;
 }
 
 // 同じ買い物として登録した商品をまとめて編集画面に復元する
@@ -838,12 +872,14 @@ function editRecord(id) {
   FEES.forEach(f => setFee(f, rec[f.key]));
   editCommon = readFormCommon();   // 変更検知の基準として控える
   rebuildProductRows(group);
+  editRowsSnapshot = rowsSignature(getProductRows());
   updateAutoFieldsFromRow(rec.product);
   const hint = $('group-hint');
   hint.style.display = group.length > 1 ? 'block' : 'none';
   hint.textContent = group.length > 1
     ? `この買い物でまとめて登録した ${group.length} 商品を表示しています` : '';
-  $('save-btn').textContent = '更新する';
+  $('save-btn').textContent = '登録内容を更新する';
+  $('back-btn').style.display = 'block';
   showTab('add');
   window.scrollTo(0, 0);
 }
