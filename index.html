@@ -177,6 +177,7 @@
 
     <!-- Product rows -->
     <div class="section-title">商品・個数・金額</div>
+    <div id="group-hint" style="display:none;font-size:11px;color:var(--primary);font-weight:600;margin:-4px 0 8px;"></div>
     <div id="product-rows"></div>
     <button class="add-row-btn" onclick="addProductRow()">＋ 商品を追加</button>
 
@@ -387,7 +388,8 @@
 
 // ── 定数・状態 ─────────────────────────────────────────────────────
 const DB_KEY = 'shopping_records';
-let editId = null;       // 編集中レコードID（nullなら新規）
+let editIds = [];        // 編集中レコードIDの一覧（空なら新規登録）
+let editCommon = null;   // 編集開始時の共通項目（変更されたものだけ全商品に反映するため）
 let rowCounter = 0;      // 商品行の連番
 
 // ── ユーティリティ ─────────────────────────────────────────────────
@@ -504,10 +506,12 @@ const addChannel = () => addOption(channelStore, refreshChannelSelect, 'チャ�
 const addPayment = () => addOption(paymentStore, refreshPaymentSelect, '支払方法', '支払方法');
 
 // ── 商品行 ─────────────────────────────────────────────────────────
-function addProductRow(product, unitPrice, quantity) {
+// recordId: 既存レコードを編集中の行なら、そのレコードID（新しい行は空）
+function addProductRow(product, unitPrice, quantity, recordId) {
   const id = ++rowCounter;
   const div = document.createElement('div');
   div.dataset.rowId = id;
+  div.dataset.recordId = recordId || '';
   div.innerHTML = `
     <div class="product-row-item">
       <div class="product-row-name-line">
@@ -548,7 +552,7 @@ function removeProductRow(btn) {
   updateTotal();
 }
 
-// 商品名が入っている行だけを {product, unitPrice, quantity, price} で返す
+// 商品名が入っている行だけを {recordId, product, unitPrice, quantity, price} で返す
 function getProductRows() {
   const rows = [];
   document.querySelectorAll('#product-rows [data-row-id]').forEach(div => {
@@ -557,7 +561,7 @@ function getProductRows() {
     const unitPrice = nums[0].value !== '' ? Number(nums[0].value) : '';
     const quantity  = nums[1].value !== '' ? Number(nums[1].value) : 1;
     const price     = (unitPrice !== '' && quantity) ? unitPrice * quantity : '';
-    if (product) rows.push({ product, unitPrice, quantity, price });
+    if (product) rows.push({ recordId: div.dataset.recordId || '', product, unitPrice, quantity, price });
   });
   return rows;
 }
@@ -713,7 +717,7 @@ function updateAutoFieldsFromRow(productName) {
   const curDate = $('f-date').value;
   const curStore = $('f-store').value.trim();
   const existing = getRecords().filter(r =>
-    r.product === productName && (r.store || '') === curStore && r.id !== editId);
+    r.product === productName && (r.store || '') === curStore && !editIds.includes(r.id));
   const allDates = existing.map(r => r.date).filter(Boolean);
   if (curDate) allDates.push(curDate);
   allDates.sort();
@@ -733,6 +737,16 @@ function readFormCommon() {
   return { ...common, ...readFees() };
 }
 
+// 同じ日・同じ店舗・同じチャネルの記録を「1回の買い物」とみなす
+// （店舗もチャネルも未入力の場合は手掛かりが無いため単独扱い）
+const purchaseKey = r => [r.date || '', r.store || '', r.channel || ''].join('|');
+
+function purchaseGroup(rec, allRecords) {
+  if (!rec.store && !rec.channel) return [rec];
+  const key = purchaseKey(rec);
+  return allRecords.filter(r => purchaseKey(r) === key);
+}
+
 function saveRecord() {
   const common = readFormCommon();
   if (!common.date) { toast('購入日を入力してください'); return; }
@@ -742,31 +756,52 @@ function saveRecord() {
 
   const records = getRecords();
 
-  if (editId) {
-    // 編集モード：先頭行で対象レコードを更新し、増やした行は新規レコードとして追加
-    const idx = records.findIndex(r => r.id === editId);
-    if (idx !== -1) records[idx] = { ...records[idx], ...common, ...productRows[0] };
-    productRows.slice(1).forEach(pRow => records.push({ id: newId(), ...common, ...pRow }));
-    editId = null;
-    $('save-btn').textContent = '記録を保存する';
+  if (editIds.length) {
+    // 編集モード：行に紐づくレコードを更新し、増やした行は追加、消した行は削除
+    const keptIds = productRows.map(r => r.recordId).filter(Boolean);
+    const removedIds = editIds.filter(id => !keptIds.includes(id));
+    if (removedIds.length &&
+        !confirm(`削除した商品 ${removedIds.length} 件を記録から取り消します。よろしいですか？`)) return;
+
+    // 変更した共通項目だけを反映（商品ごとに違うカテゴリ等をそのまま残すため）
+    const changed = Object.fromEntries(
+      Object.entries(common).filter(([k, v]) => !editCommon || v !== editCommon[k]));
+
+    productRows.forEach(({ recordId, ...values }) => {
+      const idx = recordId ? records.findIndex(r => r.id === recordId) : -1;
+      if (idx !== -1) records[idx] = { ...records[idx], ...changed, ...values };
+      else records.push({ id: newId(), ...common, ...values });
+    });
+    removedIds.forEach(id => {
+      const i = records.findIndex(r => r.id === id);
+      if (i !== -1) records.splice(i, 1);
+    });
+
+    recalcAutoFields(records);
+    saveRecords(records);
+    toast(removedIds.length
+      ? `${productRows.length}件を更新・${removedIds.length}件を削除しました`
+      : `${productRows.length}件を更新しました ✓`);
   } else {
     // 新規：1商品=1レコードとして展開（共通項目は複製）
-    productRows.forEach(pRow => records.push({ id: newId(), ...common, ...pRow }));
+    productRows.forEach(({ recordId, ...values }) => records.push({ id: newId(), ...common, ...values }));
+    recalcAutoFields(records);
+    saveRecords(records);
+    toast(`${productRows.length}件を保存しました ✓`);
   }
 
-  recalcAutoFields(records);
-  saveRecords(records);
-  toast(`${productRows.length}件を保存しました ✓`);
   resetForm();
 }
 
-// 商品行を作り直す（record省略で空の1行）
-function rebuildProductRows(record) {
+// 商品行を作り直す（省略時は空の1行）
+function rebuildProductRows(list) {
   $('product-rows').innerHTML = '';
   rowCounter = 0;
-  if (record) {
-    const unit = (record.unitPrice !== undefined && record.unitPrice !== '') ? record.unitPrice : record.price;
-    addProductRow(record.product, unit, record.quantity || 1);
+  if (list && list.length) {
+    list.forEach(r => {
+      const unit = (r.unitPrice !== undefined && r.unitPrice !== '') ? r.unitPrice : r.price;
+      addProductRow(r.product, unit, r.quantity || 1, r.id);
+    });
   } else {
     addProductRow();
   }
@@ -782,21 +817,32 @@ function resetForm() {
   FEES.forEach(f => setFee(f, 0));
   rebuildProductRows();
   setAutoFieldDisplay('—', '—', '—');
-  editId = null;
+  $('group-hint').style.display = 'none';
+  $('save-btn').textContent = '記録を保存する';
+  editIds = [];
+  editCommon = null;
 }
 
+// 同じ買い物として登録した商品をまとめて編集画面に復元する
 function editRecord(id) {
-  const r = getRecords().find(x => x.id === id);
-  if (!r) return;
-  editId = id;
+  const all = getRecords();
+  const rec = all.find(x => x.id === id);
+  if (!rec) return;
+  const group = purchaseGroup(rec, all);
+  editIds = group.map(r => r.id);
   // 選択肢を作り直してから値を流し込む（CSV由来の未登録値もそのまま復元される）
-  refreshChannelSelect(r.channel || '');
-  refreshPaymentSelect(r.payment || '');
-  FORM_FIELDS.forEach(f => $(f.id).value = r[f.key] || '');
-  setCashDetail(r.paymentDetail);
-  FEES.forEach(f => setFee(f, r[f.key]));
-  rebuildProductRows(r);
-  updateAutoFieldsFromRow(r.product);
+  refreshChannelSelect(rec.channel || '');
+  refreshPaymentSelect(rec.payment || '');
+  FORM_FIELDS.forEach(f => $(f.id).value = rec[f.key] || '');
+  setCashDetail(rec.paymentDetail);
+  FEES.forEach(f => setFee(f, rec[f.key]));
+  editCommon = readFormCommon();   // 変更検知の基準として控える
+  rebuildProductRows(group);
+  updateAutoFieldsFromRow(rec.product);
+  const hint = $('group-hint');
+  hint.style.display = group.length > 1 ? 'block' : 'none';
+  hint.textContent = group.length > 1
+    ? `この買い物でまとめて登録した ${group.length} 商品を表示しています` : '';
   $('save-btn').textContent = '更新する';
   showTab('add');
   window.scrollTo(0, 0);
