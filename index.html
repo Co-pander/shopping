@@ -105,6 +105,17 @@
   .search-row input { flex: 1; }
 
   /* Stats */
+  .breakdown-row { padding: 6px 4px; margin: 0 -4px 4px; border-radius: 8px; cursor: pointer; transition: background .15s; -webkit-tap-highlight-color: transparent; }
+  .breakdown-row:active { background: #e6f2f8; }
+  .breakdown-row:hover { background: #f2f8fa; }
+  .breakdown-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; margin-bottom: 4px; gap: 8px; }
+  .breakdown-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .breakdown-amount { font-weight: 700; white-space: nowrap; }
+  .breakdown-arrow { color: var(--muted); font-weight: 700; margin-left: 6px; }
+  .breakdown-track { background: #eef4fb; border-radius: 4px; height: 6px; }
+  .breakdown-bar { height: 6px; border-radius: 4px; }
+  .breakdown-hint { font-weight: 600; font-size: 10px; text-transform: none; letter-spacing: 0; color: var(--primary); }
+
   .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
   .stat-card { background: var(--card); border-radius: 10px; padding: 14px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.07); }
   .stat-value { font-size: 22px; font-weight: 700; color: var(--primary); }
@@ -335,6 +346,7 @@
 <div id="tab-stats" class="section">
   <div class="stats-grid" id="stats-grid"></div>
   <div class="card" id="stats-category"></div>
+  <div class="card" id="stats-channel"></div>
 
   <div class="card" style="border:1.5px solid #fcc;">
     <p class="section-title" style="color:var(--danger);">データ管理</p>
@@ -394,6 +406,8 @@
 
 // ── 定数・状態 ─────────────────────────────────────────────────────
 const DB_KEY = 'shopping_records';
+const UNSET_LABEL = '未設定';   // 集計グラフでの未入力の表示名
+const NONE = '__none__';        // 検索の絞り込みで「未入力のもの」を表す値
 let editIds = [];            // 編集中レコードIDの一覧（空なら新規登録）
 let editCommon = null;       // 編集開始時の共通項目（変更されたものだけ全商品に反映するため）
 let editRowsSnapshot = null; // 編集開始時の商品行（変更の有無を判定するため）
@@ -478,14 +492,17 @@ const FEES = [
 ].map(f => ({ ...f, check: `f-${f.key}-check`, input: `f-${f.key}` }));
 
 // ── 選択肢（セレクトボックス共通処理） ─────────────────────────────
+// values は文字列か {value, label} の配列
 // current が候補に無い場合も選択肢に加える（CSV取込で入った値が消えないように）
 function fillSelect(sel, values, current, placeholder) {
-  const list = (current && !values.includes(current)) ? [...values, current] : values;
+  const items = values.map(v => typeof v === 'string' ? { value: v, label: v } : v);
+  if (current && !items.some(i => i.value === current)) items.push({ value: current, label: current });
   sel.innerHTML = `<option value="">${placeholder}</option>`;
-  list.forEach(v => {
+  items.forEach(i => {
     const o = document.createElement('option');
-    o.value = o.textContent = v;
-    if (v === current) o.selected = true;
+    o.value = i.value;
+    o.textContent = i.label;
+    if (i.value === current) o.selected = true;
     sel.appendChild(o);
   });
 }
@@ -991,10 +1008,18 @@ function actionSheetDelete() {
 const closeActionSheet = () => hideModal('action-sheet');
 
 // ── 検索タブ ───────────────────────────────────────────────────────
+const SEARCH_FILTERS = [['s-channel', 'channel'], ['s-category', 'category'], ['s-payment', 'payment']];
+
 function initSearchTab() {
-  // 絞り込みリストは目的の項目を探しやすいよう五十音順
-  [['s-channel', 'channel'], ['s-category', 'category'], ['s-payment', 'payment']]
-    .forEach(([id, key]) => fillSelect($(id), distinctValues(r => r[key]).sort(), $(id).value, 'すべて'));
+  SEARCH_FILTERS.forEach(([id, key]) => {
+    // 絞り込みリストは目的の項目を探しやすいよう五十音順
+    const values = distinctValues(r => r[key]).sort();
+    // 未入力の記録があるときだけ「（未設定）」で絞り込めるようにする
+    const hasBlank = getRecords().some(r => !r[key]);
+    const items = hasBlank ? [...values, { value: NONE, label: '（未設定）' }] : values;
+    const current = ($(id).value === NONE && !hasBlank) ? '' : $(id).value;
+    fillSelect($(id), items, current, 'すべて');
+  });
 
   document.querySelectorAll('.period-btn').forEach(btn => {
     btn.onclick = function() {
@@ -1008,6 +1033,25 @@ function initSearchTab() {
 function getActivePeriod() {
   const btn = document.querySelector('.period-btn.active');
   return btn ? btn.dataset.period : '';
+}
+
+// selected が未指定なら通す／NONE なら未入力のものだけ通す
+const matchFilter = (selected, value) =>
+  !selected || (selected === NONE ? !value : value === selected);
+
+// 集計グラフから検索タブへ。他の条件はリセットして、その項目だけで絞り込む
+function searchBy(selectId, value) {
+  showTab('search');                    // ここで絞り込みの選択肢が作り直される
+  $('s-word').value = '';
+  $('s-date-from').value = '';
+  $('s-date-to').value = '';
+  SEARCH_FILTERS.forEach(([id]) => $(id).value = '');
+  document.querySelectorAll('.period-btn')
+    .forEach(b => b.classList.toggle('active', b.dataset.period === ''));
+  $('custom-period').style.display = 'none';
+  $(selectId).value = value;
+  runSearch();
+  $('search-result-header').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function runSearch() {
@@ -1028,9 +1072,10 @@ function runSearch() {
     if (words.length && !words.every(w =>
       [r.product, r.brand, r.category, r.subcategory, r.store]
         .some(v => (v || '').toLowerCase().includes(w)))) return false;
-    if (channel && r.channel !== channel) return false;
-    if (category && r.category !== category) return false;
-    if (payment && r.payment !== payment) return false;
+    // 絞り込み（NONE は「未入力のもの」を意味する）
+    if (!matchFilter(channel, r.channel)) return false;
+    if (!matchFilter(category, r.category)) return false;
+    if (!matchFilter(payment, r.payment)) return false;
     if (cutoff && r.date && new Date(r.date) < cutoff) return false;
     if (period === 'custom') {
       if (dateFrom && r.date && r.date < dateFrom) return false;
@@ -1043,8 +1088,11 @@ function runSearch() {
 }
 
 function renderSearchResults(records, words) {
+  const total = records.reduce((s, r) => s + (r.price || 0), 0);
   $('search-result-header').style.display = 'block';
-  $('search-result-count').textContent = `検索結果：${records.length} 件`;
+  $('search-result-count').innerHTML =
+    `検索結果：${records.length} 件` +
+    (records.length ? `　<span style="color:var(--primary);">合計 ${fmtYen(total)}</span>` : '');
   const el = $('search-results');
   if (!records.length) {
     el.innerHTML = '<div class="empty-state">条件に一致するデータがありません</div>';
@@ -1092,20 +1140,37 @@ function renderStats() {
     <div class="stat-card"><div class="stat-value">${months.length}</div><div class="stat-label">購入月数</div></div>
   `;
 
-  const byCategory = sumBy(records, r => r.category || '未設定');
-  const maxV = byCategory[0]?.[1] || 1;
-  $('stats-category').innerHTML =
-    '<p class="section-title">カテゴリ別支出</p>' +
-    (byCategory.length ? byCategory.map(([k, v]) => `
-      <div style="margin-bottom:10px;">
-        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
-          <span>${esc(k)}</span><span style="font-weight:700;">${fmtYen(v)}</span>
-        </div>
-        <div style="background:#eef4fb;border-radius:4px;height:6px;">
-          <div style="background:var(--primary);height:6px;border-radius:4px;width:${Math.round(v / maxV * 100)}%"></div>
-        </div>
+  renderBreakdown('stats-category', 'カテゴリ別支出',
+    sumBy(records, r => r.category || UNSET_LABEL), 'var(--primary)', 's-category');
+  renderBreakdown('stats-channel', 'チャネル別支出',
+    sumBy(records, r => r.channel || UNSET_LABEL), 'var(--main-light)', 's-channel');
+}
+
+// 項目別支出の横棒グラフ（行をタップすると検索タブでその明細を表示）
+function renderBreakdown(elId, title, entries, barColor, selectId) {
+  const box = $(elId);
+  box.innerHTML = `<p class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>${title}</span>${entries.length ? '<span class="breakdown-hint">タップで明細を表示</span>' : ''}
+    </p>`;
+  if (!entries.length) {
+    box.insertAdjacentHTML('beforeend', '<div style="color:var(--muted);font-size:14px;">データがありません</div>');
+    return;
+  }
+  const maxV = entries[0][1] || 1;
+  entries.forEach(([name, amount]) => {
+    const row = document.createElement('div');
+    row.className = 'breakdown-row';
+    row.innerHTML = `
+      <div class="breakdown-head">
+        <span class="breakdown-name">${esc(name)}</span>
+        <span><span class="breakdown-amount">${fmtYen(amount)}</span><span class="breakdown-arrow">›</span></span>
       </div>
-    `).join('') : '<div style="color:var(--muted);font-size:14px;">データがありません</div>');
+      <div class="breakdown-track">
+        <div class="breakdown-bar" style="background:${barColor};width:${Math.round(amount / maxV * 100)}%"></div>
+      </div>`;
+    row.onclick = () => searchBy(selectId, name === UNSET_LABEL ? NONE : name);
+    box.appendChild(row);
+  });
 }
 
 // ── CSV（列定義・出力・取込） ──────────────────────────────────────
