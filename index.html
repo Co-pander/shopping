@@ -20,7 +20,6 @@
     --primary-dark: #1b7fb2;
     --main-light: #6fcfb2;     /* アイコンのミントグリーン */
     --danger: #e74c3c;
-    --success: #27ae60;
     --bg: #f2f8fa;             /* 淡いブルーの背景 */
     --card: #ffffff;
     --border: #d8e6ec;
@@ -68,7 +67,6 @@
   .calc-sep { font-size: 15px; font-weight: 700; color: var(--muted); flex-shrink: 0; }
   .price-display { flex: 1; min-width: 0; background: #eef4fb; border: 1.5px solid #c8dcf0; border-radius: 8px; padding: 9px 10px; font-size: 14px; color: var(--primary); font-weight: 700; text-align: right; white-space: nowrap; }
   .row-del-btn { width: 36px; height: 38px; border: none; background: #fef0f0; color: var(--danger); border-radius: 8px; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-  .row-hint { font-size: 11px; color: var(--primary); padding: 2px 4px 6px; }
 
   .add-row-btn { width: 100%; padding: 10px; border: 1.5px dashed var(--primary); background: transparent; color: var(--primary); border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 2px; margin-bottom: 4px; }
 
@@ -76,8 +74,8 @@
   .btn { display: block; width: 100%; padding: 13px; border: none; border-radius: 8px; font-size: 15px; font-weight: 700; cursor: pointer; text-align: center; transition: opacity .2s, transform .1s; -webkit-tap-highlight-color: transparent; }
   .btn:active { transform: scale(.98); opacity: .85; }
   .btn-primary { background: var(--primary); color: #fff; }
-  .btn-success { background: var(--success); color: #fff; }
   .btn-outline { background: transparent; color: var(--primary); border: 1.5px solid var(--primary); }
+  .btn-danger-soft { background: #fef0f0; color: var(--danger); border: 1.5px solid #fcc; }
   .btn-sm { padding: 6px 11px; font-size: 12px; width: auto; display: inline-block; font-weight: 700; border-radius: 6px; }
 
   .form-actions { display: flex; gap: 10px; }
@@ -136,7 +134,6 @@
   .section-title { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; }
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .divider { height: 1px; background: var(--border); margin: 14px 0; }
-  .mt8 { margin-top: 8px; }
 
   /* Shipping */
   .shipping-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
@@ -351,7 +348,7 @@
   <div class="card" style="border:1.5px solid #fcc;">
     <p class="section-title" style="color:var(--danger);">データ管理</p>
     <p style="font-size:12px;color:var(--muted);margin-bottom:10px;">すべての購入記録を削除します。この操作は元に戻せません。事前にCSV出力でのバックアップをおすすめします。</p>
-    <button class="btn btn-sm" style="background:#fef0f0;color:var(--danger);border:1.5px solid #fcc;" onclick="clearAllData()">全データを削除</button>
+    <button class="btn btn-sm btn-danger-soft" onclick="clearAllData()">全データを削除</button>
   </div>
 </div>
 
@@ -360,7 +357,7 @@
   <div class="modal-box">
     <h3 id="action-sheet-title" style="word-break:break-all;"></h3>
     <button class="btn btn-primary" onclick="actionSheetEdit()">編集</button>
-    <button class="btn" style="background:#fef0f0;color:var(--danger);border:1.5px solid #fcc;margin-top:10px;" onclick="actionSheetDelete()">削除</button>
+    <button class="btn btn-danger-soft" style="margin-top:10px;" onclick="actionSheetDelete()">削除</button>
     <button class="btn btn-outline" style="margin-top:10px;" onclick="closeActionSheet()">キャンセル</button>
   </div>
 </div>
@@ -491,6 +488,16 @@ const FEES = [
   { key: 'codFee',   label: '代引手数料', placeholder: '手数料（円）', badgeStyle: 'background:#f3eefa;color:#6b4a99;' },
 ].map(f => ({ ...f, check: `f-${f.key}-check`, input: `f-${f.key}` }));
 
+// 検索タブの絞り込み項目。chart を持つものは集計タブに支出グラフも表示し、
+// グラフのタップでこの絞り込みに飛ぶ
+const FILTERS = [
+  { id: 's-category', key: 'category',
+    chart: { elId: 'stats-category', title: 'カテゴリ別支出', color: 'var(--primary)' } },
+  { id: 's-channel',  key: 'channel',
+    chart: { elId: 'stats-channel',  title: 'チャネル別支出', color: 'var(--main-light)' } },
+  { id: 's-payment',  key: 'payment' },
+];
+
 // ── 選択肢（セレクトボックス共通処理） ─────────────────────────────
 // values は文字列か {value, label} の配列
 // current が候補に無い場合も選択肢に加える（CSV取込で入った値が消えないように）
@@ -551,10 +558,9 @@ function addProductRow(product, unitPrice, quantity, recordId) {
         <span class="calc-sep">×</span>
         <input type="number" placeholder="個数" value="${quantity || 1}" min="1" oninput="calcRowPrice(this)">
         <span class="calc-sep">=</span>
-        <div class="price-display" id="price-disp-${id}">${(unitPrice && quantity) ? fmtYen(Number(unitPrice) * Number(quantity)) : '—'}</div>
+        <div class="price-display">${(unitPrice && quantity) ? fmtYen(Number(unitPrice) * Number(quantity)) : '—'}</div>
       </div>
     </div>
-    <div class="row-hint" id="hint-${id}"></div>
   `;
   $('product-rows').appendChild(div);
 }
@@ -951,7 +957,7 @@ function renderList() {
     <div class="record-card" data-id="${r.id}">${recordCardBody(r)}
       <div class="record-actions">
         <button class="btn btn-outline btn-sm" onclick="editRecord('${r.id}')">編集</button>
-        <button class="btn btn-sm" style="background:#fef0f0;color:var(--danger);border:1px solid #fcc;" onclick="deleteRecord('${r.id}')">削除</button>
+        <button class="btn btn-sm btn-danger-soft" onclick="deleteRecord('${r.id}')">削除</button>
       </div>
     </div>
   `).join('');
@@ -1008,25 +1014,15 @@ function actionSheetDelete() {
 const closeActionSheet = () => hideModal('action-sheet');
 
 // ── 検索タブ ───────────────────────────────────────────────────────
-const SEARCH_FILTERS = [['s-channel', 'channel'], ['s-category', 'category'], ['s-payment', 'payment']];
-
 function initSearchTab() {
-  SEARCH_FILTERS.forEach(([id, key]) => {
+  FILTERS.forEach(f => {
     // 絞り込みリストは目的の項目を探しやすいよう五十音順
-    const values = distinctValues(r => r[key]).sort();
+    const values = distinctValues(r => r[f.key]).sort();
     // 未入力の記録があるときだけ「（未設定）」で絞り込めるようにする
-    const hasBlank = getRecords().some(r => !r[key]);
+    const hasBlank = getRecords().some(r => !r[f.key]);
     const items = hasBlank ? [...values, { value: NONE, label: '（未設定）' }] : values;
-    const current = ($(id).value === NONE && !hasBlank) ? '' : $(id).value;
-    fillSelect($(id), items, current, 'すべて');
-  });
-
-  document.querySelectorAll('.period-btn').forEach(btn => {
-    btn.onclick = function() {
-      document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
-      this.classList.add('active');
-      $('custom-period').style.display = this.dataset.period === 'custom' ? 'block' : 'none';
-    };
+    const current = ($(f.id).value === NONE && !hasBlank) ? '' : $(f.id).value;
+    fillSelect($(f.id), items, current, 'すべて');
   });
 }
 
@@ -1035,20 +1031,26 @@ function getActivePeriod() {
   return btn ? btn.dataset.period : '';
 }
 
+function setPeriod(period) {
+  document.querySelectorAll('.period-btn')
+    .forEach(b => b.classList.toggle('active', b.dataset.period === period));
+  $('custom-period').style.display = period === 'custom' ? 'block' : 'none';
+}
+
 // selected が未指定なら通す／NONE なら未入力のものだけ通す
 const matchFilter = (selected, value) =>
   !selected || (selected === NONE ? !value : value === selected);
 
+function clearSearchConditions() {
+  ['s-word', 's-date-from', 's-date-to'].forEach(id => $(id).value = '');
+  FILTERS.forEach(f => $(f.id).value = '');
+  setPeriod('');
+}
+
 // 集計グラフから検索タブへ。他の条件はリセットして、その項目だけで絞り込む
 function searchBy(selectId, value) {
-  showTab('search');                    // ここで絞り込みの選択肢が作り直される
-  $('s-word').value = '';
-  $('s-date-from').value = '';
-  $('s-date-to').value = '';
-  SEARCH_FILTERS.forEach(([id]) => $(id).value = '');
-  document.querySelectorAll('.period-btn')
-    .forEach(b => b.classList.toggle('active', b.dataset.period === ''));
-  $('custom-period').style.display = 'none';
+  showTab('search');            // ここで絞り込みの選択肢が作り直される
+  clearSearchConditions();
   $(selectId).value = value;
   runSearch();
   $('search-result-header').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1056,9 +1058,7 @@ function searchBy(selectId, value) {
 
 function runSearch() {
   const words = $('s-word').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const channel  = $('s-channel').value;
-  const category = $('s-category').value;
-  const payment  = $('s-payment').value;
+  const selected = FILTERS.map(f => [f.key, $(f.id).value]);
   const period   = getActivePeriod();
   const dateFrom = $('s-date-from').value;
   const dateTo   = $('s-date-to').value;
@@ -1073,9 +1073,7 @@ function runSearch() {
       [r.product, r.brand, r.category, r.subcategory, r.store]
         .some(v => (v || '').toLowerCase().includes(w)))) return false;
     // 絞り込み（NONE は「未入力のもの」を意味する）
-    if (!matchFilter(channel, r.channel)) return false;
-    if (!matchFilter(category, r.category)) return false;
-    if (!matchFilter(payment, r.payment)) return false;
+    if (!selected.every(([key, value]) => matchFilter(value, r[key]))) return false;
     if (cutoff && r.date && new Date(r.date) < cutoff) return false;
     if (period === 'custom') {
       if (dateFrom && r.date && r.date < dateFrom) return false;
@@ -1140,14 +1138,13 @@ function renderStats() {
     <div class="stat-card"><div class="stat-value">${months.length}</div><div class="stat-label">購入月数</div></div>
   `;
 
-  renderBreakdown('stats-category', 'カテゴリ別支出',
-    sumBy(records, r => r.category || UNSET_LABEL), 'var(--primary)', 's-category');
-  renderBreakdown('stats-channel', 'チャネル別支出',
-    sumBy(records, r => r.channel || UNSET_LABEL), 'var(--main-light)', 's-channel');
+  FILTERS.filter(f => f.chart).forEach(f =>
+    renderBreakdown(f, sumBy(records, r => r[f.key] || UNSET_LABEL)));
 }
 
 // 項目別支出の横棒グラフ（行をタップすると検索タブでその明細を表示）
-function renderBreakdown(elId, title, entries, barColor, selectId) {
+function renderBreakdown(filter, entries) {
+  const { elId, title, color } = filter.chart;
   const box = $(elId);
   box.innerHTML = `<p class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
       <span>${title}</span>${entries.length ? '<span class="breakdown-hint">タップで明細を表示</span>' : ''}
@@ -1166,9 +1163,9 @@ function renderBreakdown(elId, title, entries, barColor, selectId) {
         <span><span class="breakdown-amount">${fmtYen(amount)}</span><span class="breakdown-arrow">›</span></span>
       </div>
       <div class="breakdown-track">
-        <div class="breakdown-bar" style="background:${barColor};width:${Math.round(amount / maxV * 100)}%"></div>
+        <div class="breakdown-bar" style="background:${color};width:${Math.round(amount / maxV * 100)}%"></div>
       </div>`;
-    row.onclick = () => searchBy(selectId, name === UNSET_LABEL ? NONE : name);
+    row.onclick = () => searchBy(filter.id, name === UNSET_LABEL ? NONE : name);
     box.appendChild(row);
   });
 }
@@ -1368,6 +1365,10 @@ window.onload = function() {
     el.addEventListener('input', () => { show(); if (f.after) f.after(); });
   });
   FORM_FIELDS.filter(f => f.onChange).forEach(f => $(f.id).addEventListener('change', f.onChange));
+
+  // 検索タブの期間ボタン
+  document.querySelectorAll('.period-btn')
+    .forEach(btn => btn.addEventListener('click', () => setPeriod(btn.dataset.period)));
 
   // 既存データを最新のカウント方式（商品＋店舗）で再計算
   const records = getRecords();
