@@ -485,9 +485,9 @@ const paymentStore = listStore('shopping_payments', ['現金', '銀行振込', '
 // ac: 入力履歴のサジェストあり / after: 入力時に追加で呼ぶ処理
 const FORM_FIELDS = [
   { id: 'f-date',        key: 'date' },
-  { id: 'f-brand',       key: 'brand',       ac: true },
-  { id: 'f-category',    key: 'category',    ac: true },
-  { id: 'f-subcategory', key: 'subcategory', ac: true },
+  { id: 'f-brand',       key: 'brand',       ac: true, perProduct: true, label: 'ブランド' },
+  { id: 'f-category',    key: 'category',    ac: true, perProduct: true, label: 'カテゴリ' },
+  { id: 'f-subcategory', key: 'subcategory', ac: true, perProduct: true, label: 'サブカテゴリ' },
   { id: 'f-store',       key: 'store',       ac: true, after: () => updateAutoFields() },
   { id: 'f-channel',     key: 'channel' },
   { id: 'f-payment',     key: 'payment',     onChange: () => onPaymentChange() },
@@ -549,14 +549,17 @@ const addPayment = () => addOption(paymentStore, refreshPaymentSelect, '支払�
 
 // ── 商品行 ─────────────────────────────────────────────────────────
 // recordId: 既存レコードを編集中の行なら、そのレコードID（新しい行は空）
-function addProductRow(product, unitPrice, quantity, recordId) {
+// rec: 既存レコード（新規行は省略）／ perProduct: 個別設定を開いて値を入れる項目
+function addProductRow(rec, perProduct = []) {
   const id = ++rowCounter;
+  const unitPrice = rec ? ((rec.unitPrice !== undefined && rec.unitPrice !== '') ? rec.unitPrice : rec.price) : '';
+  const quantity  = rec ? (rec.quantity || 1) : 1;
   const div = document.createElement('div');
   div.dataset.rowId = id;
-  div.dataset.recordId = recordId || '';
+  div.dataset.recordId = (rec && rec.id) || '';
   div.innerHTML = `
     <div class="product-row-item">
-      <button type="button" class="row-detail-toggle" onclick="toggleRowDetail(this)">＋ ブランド・カテゴリを個別に設定</button>
+      <button type="button" class="row-detail-toggle" onclick="toggleRowDetail(this)">${ROW_DETAIL_OPEN}</button>
       <div class="row-detail" style="display:none;">
         ${ROW_FIELDS.map(f => `
           <div class="row-detail-field">
@@ -570,7 +573,7 @@ function addProductRow(product, unitPrice, quantity, recordId) {
       </div>
       <div class="product-row-name-line">
         <div class="ac-wrap">
-          <input type="text" class="product-name-input" placeholder="商品名" value="${esc(product || '')}" autocomplete="off"
+          <input type="text" class="product-name-input" placeholder="商品名" value="${esc((rec && rec.product) || '')}" autocomplete="off"
             oninput="acRowInput(this,${id})" onfocus="acRowInput(this,${id})" onblur="onProductBlur(this)">
           <div class="autocomplete-list" id="ac-row-${id}" style="display:none"></div>
         </div>
@@ -579,31 +582,44 @@ function addProductRow(product, unitPrice, quantity, recordId) {
       <div class="product-row-calc-line">
         <input type="number" placeholder="単価" value="${unitPrice || ''}" min="0" oninput="calcRowPrice(this)">
         <span class="calc-sep">×</span>
-        <input type="number" placeholder="個数" value="${quantity || 1}" min="1" oninput="calcRowPrice(this)">
+        <input type="number" placeholder="個数" value="${quantity}" min="1" oninput="calcRowPrice(this)">
         <span class="calc-sep">=</span>
         <div class="price-display">${(unitPrice && quantity) ? fmtYen(Number(unitPrice) * Number(quantity)) : '—'}</div>
       </div>
     </div>
   `;
   $('product-rows').appendChild(div);
+  if (rec && perProduct.length) {
+    perProduct.forEach(f => {
+      const inp = div.querySelector(`[data-rowkey="${f.key}"]`);
+      if (inp) inp.value = rec[f.key] || '';
+    });
+    setRowDetailOpen(div, true);
+  }
 }
 
 // 共通欄の元のプレースホルダ（混在表示から戻すため起動時に控える）
 const FIELD_PLACEHOLDER = {};
 
 // 商品行で個別に設定できる項目（未入力なら共通欄の既定値を使う）
-const ROW_FIELDS = [
-  { key: 'brand',       label: 'ブランド' },
-  { key: 'category',    label: 'カテゴリ' },
-  { key: 'subcategory', label: 'サブカテゴリ' },
-];
+const ROW_FIELDS = FORM_FIELDS.filter(f => f.perProduct);
+const ROW_DETAIL_OPEN  = '＋ ブランド・カテゴリを個別に設定';
+const ROW_DETAIL_CLOSE = '− 個別設定を閉じる';
+
+// グループ内でその項目の値が商品ごとに割れているか
+const isMixed = (group, key) =>
+  group.length > 1 && new Set(group.map(r => r[key] || '')).size > 1;
+
+function setRowDetailOpen(rowDiv, open) {
+  rowDiv.querySelector('.row-detail').style.display = open ? 'block' : 'none';
+  const btn = rowDiv.querySelector('.row-detail-toggle');
+  btn.textContent = open ? ROW_DETAIL_CLOSE : ROW_DETAIL_OPEN;
+  btn.classList.toggle('open', open);
+}
 
 function toggleRowDetail(btn) {
-  const box = btn.nextElementSibling;
-  const open = box.style.display === 'none';
-  box.style.display = open ? 'block' : 'none';
-  btn.textContent = open ? '− 個別設定を閉じる' : '＋ ブランド・カテゴリを個別に設定';
-  btn.classList.toggle('open', open);
+  const row = btn.closest('[data-row-id]');
+  setRowDetailOpen(row, row.querySelector('.row-detail').style.display === 'none');
 }
 
 // 商品行の個別項目のサジェスト
@@ -831,7 +847,8 @@ function purchaseGroup(rec, allRecords) {
 
 // 編集開始時からの変更点（商品行の削除・追加・値の変更、共通項目の変更）
 const rowsSignature = rows =>
-  JSON.stringify(rows.map(r => [r.recordId || '', r.product, r.unitPrice, r.quantity]));
+  JSON.stringify(rows.map(r => [r.recordId || '', r.product, r.unitPrice, r.quantity,
+    ROW_FIELDS.map(f => r.overrides[f.key] || '')]));
 
 function pendingChanges() {
   if (!editIds.length) return { changed: false, removedIds: [] };
@@ -906,19 +923,9 @@ function rebuildProductRows(list) {
   $('product-rows').innerHTML = '';
   rowCounter = 0;
   if (list && list.length) {
-    // グループ内で値が割れている項目は「個別設定」として各行に展開する
-    const mixed = ROW_FIELDS.filter(f => new Set(list.map(r => r[f.key] || '')).size > 1);
-    list.forEach(r => {
-      const unit = (r.unitPrice !== undefined && r.unitPrice !== '') ? r.unitPrice : r.price;
-      addProductRow(r.product, unit, r.quantity || 1, r.id);
-      if (!mixed.length) return;
-      const div = $('product-rows').lastElementChild;
-      mixed.forEach(f => {
-        const inp = div.querySelector(`[data-rowkey="${f.key}"]`);
-        if (inp) inp.value = r[f.key] || '';
-      });
-      div.querySelector('.row-detail-toggle').click();   // 個別設定を開いた状態にする
-    });
+    // 商品ごとに値が割れている項目は「個別設定」を開いた状態で展開する
+    const perProduct = ROW_FIELDS.filter(f => isMixed(list, f.key));
+    list.forEach(rec => addProductRow(rec, perProduct));
   } else {
     addProductRow();
   }
@@ -953,8 +960,8 @@ function editRecord(id) {
   refreshChannelSelect(rec.channel || '');
   refreshPaymentSelect(rec.payment || '');
   FORM_FIELDS.forEach(f => {
-    // グループ内で値が割れている項目は共通欄を空にして「商品ごとに設定」と表示
-    const mixed = group.length > 1 && new Set(group.map(r => r[f.key] || '')).size > 1;
+    // 商品ごとに値が割れている項目は共通欄を空にして「（商品ごとに設定）」と表示
+    const mixed = isMixed(group, f.key);
     $(f.id).value = mixed ? '' : (rec[f.key] || '');
     if (f.ac) $(f.id).placeholder = mixed ? '（商品ごとに設定）' : (FIELD_PLACEHOLDER[f.id] || '');
   });
