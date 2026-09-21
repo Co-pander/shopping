@@ -68,6 +68,17 @@
   .price-display { flex: 1; min-width: 0; background: #eef4fb; border: 1.5px solid #c8dcf0; border-radius: 8px; padding: 9px 10px; font-size: 14px; color: var(--primary); font-weight: 700; text-align: right; white-space: nowrap; }
   .row-del-btn { width: 36px; height: 38px; border: none; background: #fef0f0; color: var(--danger); border-radius: 8px; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 
+  /* 商品ごとの個別設定（ハイブリッド方式） */
+  .row-detail-toggle { margin-bottom: 6px; padding: 2px 0; border: none; background: transparent; color: var(--primary); font-size: 12px; font-weight: 600; cursor: pointer; text-align: left; width: 100%; }
+  .row-detail-toggle.open { color: var(--muted); }
+  .row-detail { margin-bottom: 8px; padding: 10px; background: #fff; border: 1.5px dashed var(--border); border-radius: 8px; }
+  .row-detail-field { margin-bottom: 8px; position: relative; }
+  .row-detail-field:last-child { margin-bottom: 0; }
+  .row-detail-field label { font-size: 10px; margin-bottom: 3px; }
+  .row-detail-field input { font-size: 13px; padding: 7px 9px; }
+  .row-detail-field .ac-wrap { position: relative; }
+  .row-detail-field .autocomplete-list { z-index: 400; }
+
   .add-row-btn { width: 100%; padding: 10px; border: 1.5px dashed var(--primary); background: transparent; color: var(--primary); border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 2px; margin-bottom: 4px; }
 
   /* Buttons */
@@ -545,9 +556,21 @@ function addProductRow(product, unitPrice, quantity, recordId) {
   div.dataset.recordId = recordId || '';
   div.innerHTML = `
     <div class="product-row-item">
+      <button type="button" class="row-detail-toggle" onclick="toggleRowDetail(this)">＋ ブランド・カテゴリを個別に設定</button>
+      <div class="row-detail" style="display:none;">
+        ${ROW_FIELDS.map(f => `
+          <div class="row-detail-field">
+            <label>${f.label}</label>
+            <div class="ac-wrap">
+              <input type="text" data-rowkey="${f.key}" placeholder="既定値を使用" autocomplete="off"
+                oninput="acRowField(this,${id},'${f.key}')" onfocus="acRowField(this,${id},'${f.key}')">
+              <div class="autocomplete-list" id="ac-${f.key}-${id}" style="display:none"></div>
+            </div>
+          </div>`).join('')}
+      </div>
       <div class="product-row-name-line">
         <div class="ac-wrap">
-          <input type="text" placeholder="商品名" value="${esc(product || '')}" autocomplete="off"
+          <input type="text" class="product-name-input" placeholder="商品名" value="${esc(product || '')}" autocomplete="off"
             oninput="acRowInput(this,${id})" onfocus="acRowInput(this,${id})" onblur="onProductBlur(this)">
           <div class="autocomplete-list" id="ac-row-${id}" style="display:none"></div>
         </div>
@@ -563,6 +586,29 @@ function addProductRow(product, unitPrice, quantity, recordId) {
     </div>
   `;
   $('product-rows').appendChild(div);
+}
+
+// 共通欄の元のプレースホルダ（混在表示から戻すため起動時に控える）
+const FIELD_PLACEHOLDER = {};
+
+// 商品行で個別に設定できる項目（未入力なら共通欄の既定値を使う）
+const ROW_FIELDS = [
+  { key: 'brand',       label: 'ブランド' },
+  { key: 'category',    label: 'カテゴリ' },
+  { key: 'subcategory', label: 'サブカテゴリ' },
+];
+
+function toggleRowDetail(btn) {
+  const box = btn.nextElementSibling;
+  const open = box.style.display === 'none';
+  box.style.display = open ? 'block' : 'none';
+  btn.textContent = open ? '− 個別設定を閉じる' : '＋ ブランド・カテゴリを個別に設定';
+  btn.classList.toggle('open', open);
+}
+
+// 商品行の個別項目のサジェスト
+function acRowField(el, rowId, key) {
+  suggest(`ac-${key}-${rowId}`, el, distinctValues(r => r[key]));
 }
 
 function calcRowPrice(input) {
@@ -586,12 +632,18 @@ function removeProductRow(btn) {
 function getProductRows() {
   const rows = [];
   document.querySelectorAll('#product-rows [data-row-id]').forEach(div => {
-    const product = div.querySelector('input[type=text]').value.trim();
+    const product = div.querySelector('.product-name-input').value.trim();
     const nums = div.querySelectorAll('input[type=number]');
     const unitPrice = nums[0].value !== '' ? Number(nums[0].value) : '';
     const quantity  = nums[1].value !== '' ? Number(nums[1].value) : 1;
     const price     = (unitPrice !== '' && quantity) ? unitPrice * quantity : '';
-    if (product) rows.push({ recordId: div.dataset.recordId || '', product, unitPrice, quantity, price });
+    // 個別設定（未入力の項目は共通欄の既定値を使うので、ここでは入った分だけ持つ）
+    const overrides = {};
+    div.querySelectorAll('[data-rowkey]').forEach(inp => {
+      const v = inp.value.trim();
+      if (v) overrides[inp.dataset.rowkey] = v;
+    });
+    if (product) rows.push({ recordId: div.dataset.recordId || '', product, unitPrice, quantity, price, overrides });
   });
   return rows;
 }
@@ -738,7 +790,7 @@ function setAutoFieldDisplay(first, last, count) {
 }
 
 function updateAutoFields() {
-  const firstRowInput = document.querySelector('#product-rows [data-row-id] input[type=text]');
+  const firstRowInput = document.querySelector('#product-rows [data-row-id] .product-name-input');
   if (firstRowInput) updateAutoFieldsFromRow(firstRowInput.value.trim());
 }
 
@@ -821,10 +873,10 @@ function saveRecord() {
     const changed = Object.fromEntries(
       Object.entries(common).filter(([k, v]) => !editCommon || v !== editCommon[k]));
 
-    productRows.forEach(({ recordId, ...values }) => {
+    productRows.forEach(({ recordId, overrides, ...values }) => {
       const idx = recordId ? records.findIndex(r => r.id === recordId) : -1;
-      if (idx !== -1) records[idx] = { ...records[idx], ...changed, ...values };
-      else records.push({ id: newId(), ...common, ...values });
+      if (idx !== -1) records[idx] = { ...records[idx], ...changed, ...values, ...overrides };
+      else records.push({ id: newId(), ...common, ...values, ...overrides });
     });
     removedIds.forEach(id => {
       const i = records.findIndex(r => r.id === id);
@@ -838,7 +890,8 @@ function saveRecord() {
       : `${productRows.length}件を更新しました ✓`);
   } else {
     // 新規：1商品=1レコードとして展開（共通項目は複製）
-    productRows.forEach(({ recordId, ...values }) => records.push({ id: newId(), ...common, ...values }));
+    productRows.forEach(({ recordId, overrides, ...values }) =>
+      records.push({ id: newId(), ...common, ...values, ...overrides }));
     recalcAutoFields(records);
     saveRecords(records);
     toast(`${productRows.length}件を保存しました ✓`);
@@ -853,9 +906,18 @@ function rebuildProductRows(list) {
   $('product-rows').innerHTML = '';
   rowCounter = 0;
   if (list && list.length) {
+    // グループ内で値が割れている項目は「個別設定」として各行に展開する
+    const mixed = ROW_FIELDS.filter(f => new Set(list.map(r => r[f.key] || '')).size > 1);
     list.forEach(r => {
       const unit = (r.unitPrice !== undefined && r.unitPrice !== '') ? r.unitPrice : r.price;
       addProductRow(r.product, unit, r.quantity || 1, r.id);
+      if (!mixed.length) return;
+      const div = $('product-rows').lastElementChild;
+      mixed.forEach(f => {
+        const inp = div.querySelector(`[data-rowkey="${f.key}"]`);
+        if (inp) inp.value = r[f.key] || '';
+      });
+      div.querySelector('.row-detail-toggle').click();   // 個別設定を開いた状態にする
     });
   } else {
     addProductRow();
@@ -890,7 +952,12 @@ function editRecord(id) {
   // 選択肢を作り直してから値を流し込む（CSV由来の未登録値もそのまま復元される）
   refreshChannelSelect(rec.channel || '');
   refreshPaymentSelect(rec.payment || '');
-  FORM_FIELDS.forEach(f => $(f.id).value = rec[f.key] || '');
+  FORM_FIELDS.forEach(f => {
+    // グループ内で値が割れている項目は共通欄を空にして「商品ごとに設定」と表示
+    const mixed = group.length > 1 && new Set(group.map(r => r[f.key] || '')).size > 1;
+    $(f.id).value = mixed ? '' : (rec[f.key] || '');
+    if (f.ac) $(f.id).placeholder = mixed ? '（商品ごとに設定）' : (FIELD_PLACEHOLDER[f.id] || '');
+  });
   setCashDetail(rec.paymentDetail);
   FEES.forEach(f => setFee(f, rec[f.key]));
   editCommon = readFormCommon();   // 変更検知の基準として控える
@@ -1360,6 +1427,7 @@ window.onload = function() {
   // 入力補完つきの欄にイベントを紐付け
   FORM_FIELDS.filter(f => f.ac).forEach(f => {
     const el = $(f.id);
+    FIELD_PLACEHOLDER[f.id] = el.placeholder;
     const show = () => acInput(el, f.key);
     el.addEventListener('focus', show);
     el.addEventListener('input', () => { show(); if (f.after) f.after(); });
