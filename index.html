@@ -494,10 +494,11 @@ const FORM_FIELDS = [
 ];
 
 // 「チェックボックス＋金額入力」型の追加費用（入力欄はHTMLを自動生成）
+// codFee は「代引手数料」だった頃の名残。保存済みデータのキー名なので変えずに表示名だけ変更している
 const FEES = [
-  { key: 'shipping', label: '送料',       placeholder: '送料（円）',   badgeStyle: 'background:#fff8e8;color:#b07400;' },
-  { key: 'codFee',   label: '手数料',     placeholder: '手数料（円）', badgeStyle: 'background:#f3eefa;color:#6b4a99;' },
-].map(f => ({ ...f, check: `f-${f.key}-check`, input: `f-${f.key}` }));
+  { key: 'shipping', label: '送料',   badgeStyle: 'background:#fff8e8;color:#b07400;' },
+  { key: 'codFee',   label: '手数料', badgeStyle: 'background:#f3eefa;color:#6b4a99;' },
+].map(f => ({ ...f, check: `f-${f.key}-check`, input: `f-${f.key}`, placeholder: `${f.label}（円）` }));
 
 // 検索タブの絞り込み項目。chart を持つものは集計タブに支出グラフも表示し、
 // グラフのタップでこの絞り込みに飛ぶ
@@ -1320,6 +1321,20 @@ function cancelImport() {
 // 重複判定キー：日付＋商品＋価格
 const dupKey = r => [r.date || '', r.product || '', String(r.price || '')].join('|');
 
+// CSVの1行を1レコードに変換（列定義の type に従って解釈）
+function csvRowToRecord(row, colIndex) {
+  const raw = idx => (idx >= 0 && idx < row.length) ? row[idx].trim() : '';
+  const rec = { id: newId() };
+  CSV_COLUMNS.filter(c => !c.derived).forEach(c => {
+    const v = raw(colIndex[c.key]);
+    rec[c.key] = c.type === 'num' ? toNum(v) : c.type === 'date' ? normalizeDate(v) : v;
+  });
+  // 単価×個数を優先（価格列が空でも復元できるように）
+  if (rec.unitPrice !== '' && rec.quantity !== '') rec.price = rec.unitPrice * rec.quantity;
+  FEES.forEach(f => rec[f.key] = rec[f.key] || 0);
+  return rec;
+}
+
 // mode: 'merge' = 重複は読み込まない（差分のみ） / 'replace' = すべて上書き
 function processCSV(text, mode) {
   const lines = text.replace(/^﻿/, '').split(/\r?\n/).filter(l => l.trim());
@@ -1347,17 +1362,9 @@ function processCSV(text, mode) {
   for (let i = 1; i < lines.length; i++) {
     const row = parseCSVRow(lines[i]);
     if (row.length < 2) { invalid++; continue; }
-    const raw = idx => (idx >= 0 && idx < row.length) ? row[idx].trim() : '';
 
-    const rec = { id: newId() };
-    CSV_COLUMNS.filter(c => !c.derived).forEach(c => {
-      const v = raw(colIndex[c.key]);
-      rec[c.key] = c.type === 'num' ? toNum(v) : c.type === 'date' ? normalizeDate(v) : v;
-    });
+    const rec = csvRowToRecord(row, colIndex);
     if (!rec.product) { invalid++; continue; }
-    // 単価×個数を優先（価格列が空でも復元できるように）
-    if (rec.unitPrice !== '' && rec.quantity !== '') rec.price = rec.unitPrice * rec.quantity;
-    FEES.forEach(f => rec[f.key] = rec[f.key] || 0);
 
     const key = dupKey(rec);
     if (existingKeys.has(key)) { skipped++; continue; }
