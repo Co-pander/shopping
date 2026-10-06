@@ -203,7 +203,7 @@
     <div id="product-rows"></div>
     <button class="add-row-btn" onclick="addProductRow()">＋ 商品を追加</button>
 
-    <!-- 送料・代引手数料の入力欄は FEES 定義から自動生成 -->
+    <!-- 送料・手数料の入力欄は FEES 定義から自動生成 -->
     <div id="fee-rows"></div>
     <div id="total-display" style="display:none;" class="total-display"></div>
 
@@ -496,7 +496,7 @@ const FORM_FIELDS = [
 // 「チェックボックス＋金額入力」型の追加費用（入力欄はHTMLを自動生成）
 const FEES = [
   { key: 'shipping', label: '送料',       placeholder: '送料（円）',   badgeStyle: 'background:#fff8e8;color:#b07400;' },
-  { key: 'codFee',   label: '代引手数料', placeholder: '手数料（円）', badgeStyle: 'background:#f3eefa;color:#6b4a99;' },
+  { key: 'codFee',   label: '手数料',     placeholder: '手数料（円）', badgeStyle: 'background:#f3eefa;color:#6b4a99;' },
 ].map(f => ({ ...f, check: `f-${f.key}-check`, input: `f-${f.key}` }));
 
 // 検索タブの絞り込み項目。chart を持つものは集計タブに支出グラフも表示し、
@@ -664,7 +664,7 @@ function getProductRows() {
   return rows;
 }
 
-// ── 追加費用（送料・代引手数料）・合計 ─────────────────────────────
+// ── 追加費用（送料・手数料）・合計 ─────────────────────────────────
 // FEES の定義から入力欄を生成してイベントを紐付ける
 function renderFeeRows() {
   $('fee-rows').innerHTML = FEES.map(f => `
@@ -1247,6 +1247,7 @@ function renderBreakdown(filter, entries) {
 // ── CSV（列定義・出力・取込） ──────────────────────────────────────
 // type: text=そのまま / num=数値（カンマ・¥付きも解析） / date=日付正規化
 // blankIfZero: 0のとき空欄で出力 / derived: アプリが自動計算するため取込では無視
+// aliases: 旧い列名（取込時のみ参照。列名を変えても過去のCSVを読めるようにするため）
 const CSV_COLUMNS = [
   { header: '日付',         key: 'date',          type: 'date' },
   { header: '商品',         key: 'product',       type: 'text' },
@@ -1261,7 +1262,7 @@ const CSV_COLUMNS = [
   { header: '支払方法',     key: 'payment',       type: 'text' },
   { header: '支払詳細',     key: 'paymentDetail', type: 'text' },
   { header: '送料',         key: 'shipping',      type: 'num', blankIfZero: true },
-  { header: '代引手数料',   key: 'codFee',        type: 'num', blankIfZero: true },
+  { header: '手数料',       key: 'codFee',        type: 'num', blankIfZero: true, aliases: ['代引手数料'] },
   { header: '初回購入日',   key: 'firstDate',     type: 'date', derived: true },
   { header: '最終購入日',   key: 'lastDate',      type: 'date', derived: true },
   { header: '購入回数',     key: 'purchaseCount', type: 'num',  derived: true, blankIfZero: true },
@@ -1325,7 +1326,12 @@ function processCSV(text, mode) {
   if (lines.length < 2) { toast('データが見つかりません'); return; }
 
   const headers = parseCSVRow(lines[0]).map(h => h.trim());
-  const colIndex = Object.fromEntries(CSV_COLUMNS.map(c => [c.key, headers.indexOf(c.header)]));
+  // 現行の列名で探し、見つからなければ旧い列名（aliases）も試す
+  const findColumn = c => {
+    const found = [c.header, ...(c.aliases || [])].map(h => headers.indexOf(h)).find(i => i !== -1);
+    return found === undefined ? -1 : found;
+  };
+  const colIndex = Object.fromEntries(CSV_COLUMNS.map(c => [c.key, findColumn(c)]));
 
   if (colIndex.date === -1 || colIndex.product === -1) {
     showImportResult('<p style="color:var(--danger)">CSVの形式が認識できません。<br>「日付」と「商品」列が必要です。</p>', 0);
