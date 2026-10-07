@@ -493,6 +493,10 @@ const FORM_FIELDS = [
   { id: 'f-payment',     key: 'payment',     onChange: () => onPaymentChange() },
 ];
 
+// 共通欄の元のガイド文（「（商品ごとに設定）」表示から元に戻すために控える）
+const FIELD_PLACEHOLDER = Object.fromEntries(
+  FORM_FIELDS.filter(f => f.ac).map(f => [f.id, $(f.id).placeholder]));
+
 // 「チェックボックス＋金額入力」型の追加費用（入力欄はHTMLを自動生成）
 // codFee は「代引手数料」だった頃の名残。保存済みデータのキー名なので変えずに表示名だけ変更している
 const FEES = [
@@ -566,7 +570,7 @@ function addProductRow(rec, perProduct = []) {
           <div class="row-detail-field">
             <label>${f.label}</label>
             <div class="ac-wrap">
-              <input type="text" data-rowkey="${f.key}" placeholder="既定値を使用" autocomplete="off"
+              <input type="text" data-rowkey="${f.key}" autocomplete="off"
                 oninput="acRowField(this,${id},'${f.key}')" onfocus="acRowField(this,${id},'${f.key}')">
               <div class="autocomplete-list" id="ac-${f.key}-${id}" style="display:none"></div>
             </div>
@@ -598,9 +602,6 @@ function addProductRow(rec, perProduct = []) {
     setRowDetailOpen(div, true);
   }
 }
-
-// 共通欄の元のプレースホルダ（混在表示から戻すため起動時に控える）
-const FIELD_PLACEHOLDER = {};
 
 // 商品行で個別に設定できる項目（未入力なら共通欄の既定値を使う）
 const ROW_FIELDS = FORM_FIELDS.filter(f => f.perProduct);
@@ -761,9 +762,17 @@ function onProductBlur(el) {
   setTimeout(() => updateAutoFieldsFromRow(el.value.trim()), 150);
 }
 
+// 開いている候補リストを閉じる（exceptId を渡すとそれだけ残す）
+function closeAllAC(exceptId) {
+  document.querySelectorAll('.autocomplete-list').forEach(l => {
+    if (l.id !== exceptId) { l.style.display = 'none'; l.innerHTML = ''; }
+  });
+}
+
 function showAC(id, items, inputEl, onSelect) {
   const list = $(id);
   if (!list) return;
+  closeAllAC(id);          // 別の欄のリストが残らないようにする
   list.innerHTML = '';
   if (!items.length) { list.style.display = 'none'; return; }
   items.slice(0, 20).forEach(item => {
@@ -933,10 +942,20 @@ function rebuildProductRows(list) {
   updateTotal();
 }
 
+// 共通欄に値を流し込む（group を渡すと、商品ごとに値が割れている項目は
+// 空欄＋「（商品ごとに設定）」にして、各商品の値を上書きしないようにする）
+function fillCommonFields(rec, group = []) {
+  FORM_FIELDS.forEach(f => {
+    const mixed = isMixed(group, f.key);
+    $(f.id).value = mixed ? '' : ((rec && rec[f.key]) || '');
+    if (f.ac) $(f.id).placeholder = mixed ? '（商品ごとに設定）' : (FIELD_PLACEHOLDER[f.id] || '');
+  });
+}
+
 function resetForm() {
   refreshChannelSelect('');
   refreshPaymentSelect('');
-  FORM_FIELDS.forEach(f => $(f.id).value = '');
+  fillCommonFields(null);
   $('f-date').value = todayStr();
   setCashDetail('');
   FEES.forEach(f => setFee(f, 0));
@@ -960,12 +979,7 @@ function editRecord(id) {
   // 選択肢を作り直してから値を流し込む（CSV由来の未登録値もそのまま復元される）
   refreshChannelSelect(rec.channel || '');
   refreshPaymentSelect(rec.payment || '');
-  FORM_FIELDS.forEach(f => {
-    // 商品ごとに値が割れている項目は共通欄を空にして「（商品ごとに設定）」と表示
-    const mixed = isMixed(group, f.key);
-    $(f.id).value = mixed ? '' : (rec[f.key] || '');
-    if (f.ac) $(f.id).placeholder = mixed ? '（商品ごとに設定）' : (FIELD_PLACEHOLDER[f.id] || '');
-  });
+  fillCommonFields(rec, group);
   setCashDetail(rec.paymentDetail);
   FEES.forEach(f => setFee(f, rec[f.key]));
   editCommon = readFormCommon();   // 変更検知の基準として控える
@@ -1447,11 +1461,11 @@ window.onload = function() {
   // 入力補完つきの欄にイベントを紐付け
   FORM_FIELDS.filter(f => f.ac).forEach(f => {
     const el = $(f.id);
-    FIELD_PLACEHOLDER[f.id] = el.placeholder;
     const show = () => acInput(el, f.key);
     el.addEventListener('focus', show);
     el.addEventListener('input', () => { show(); if (f.after) f.after(); });
   });
+
   FORM_FIELDS.filter(f => f.onChange).forEach(f => $(f.id).addEventListener('change', f.onChange));
 
   // 検索タブの期間ボタン
@@ -1464,12 +1478,13 @@ window.onload = function() {
 
   setupListGestures();
 
-  // 入力補完リストの外側をタップしたら閉じる
-  document.addEventListener('click', e => {
-    if (!e.target.closest('[id^="wrap-"]') && !e.target.closest('.ac-wrap')) {
-      document.querySelectorAll('.autocomplete-list').forEach(l => l.style.display = 'none');
-    }
-  });
+  // 入力補完リストの外側に触れたらすぐ閉じる
+  // （click は端末で反応が遅れるため pointerdown を使い、キーボード操作用に focusin も見る）
+  const closeIfOutside = e => {
+    if (!e.target.closest('[id^="wrap-"]') && !e.target.closest('.ac-wrap')) closeAllAC();
+  };
+  ['pointerdown', 'focusin'].forEach(evt =>
+    document.addEventListener(evt, closeIfOutside, true));
 };
 
 // ── PWA: Service Worker（HTTPSまたはlocalhostで有効） ─────────────
